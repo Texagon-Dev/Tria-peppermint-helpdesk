@@ -10,7 +10,8 @@ module.exports = {
       watch: false,
       env: {
         NODE_ENV: "production",
-        PORT: 3000, // Change this to your desired port
+        PORT: 3000,
+        HOSTNAME: "0.0.0.0",
       },
     },
     {
