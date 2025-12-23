@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start"
   },
+  "resolutions": {
+    "prosemirror-view": "1.33.10"
+  },
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.5.0",
     "@blocknote/core": "^0.17.1",
