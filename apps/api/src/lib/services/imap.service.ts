@@ -4,6 +4,7 @@ import { simpleParser } from "mailparser";
 import { prisma } from "../../prisma";
 import { EmailConfig, EmailQueue } from "../types/email";
 import { AuthService } from "./auth.service";
+import { sendWebhookNotification } from "../notifications/webhook";
 
 function getReplyText(email: any): string {
   const parsed = new EmailReplyParser().read(email.text);
@@ -92,7 +93,7 @@ export class ImapService {
 
       const replyText = getReplyText(parsed);
 
-      await prisma.comment.create({
+      const comment = await prisma.comment.create({
         data: {
           text: text ? replyText : "No Body",
           userId: null,
@@ -102,6 +103,29 @@ export class ImapService {
           public: true,
         },
       });
+
+      // Trigger customer_reply_received webhook
+      const replyWebhooks = await prisma.webhooks.findMany({
+        where: { type: "customer_reply_received" },
+      });
+
+      for (const webhook of replyWebhooks) {
+        if (webhook.active) {
+          const message = {
+            event: "customer_reply_received",
+            ticketId: ticket.id,
+            ticketTitle: ticket.title,
+            commentId: comment.id,
+            replyContent: text ? replyText : "No Body",
+            customerEmail: from.value[0].address,
+            customerName: from.value[0].name || "",
+            isCustomer: true,
+            fromImap: true,
+          };
+          console.log("Triggering customer_reply_received webhook:", webhook.url);
+          await sendWebhookNotification(webhook, message);
+        }
+      }
     } else {
       const imapEmail = await prisma.imap_Email.create({
         data: {
@@ -113,7 +137,7 @@ export class ImapService {
         },
       });
 
-      await prisma.ticket.create({
+      const ticket = await prisma.ticket.create({
         data: {
           email: from.value[0].address,
           name: from.value[0].name,
@@ -124,8 +148,33 @@ export class ImapService {
           detail: html || textAsHtml,
         },
       });
+
+      // Trigger customer_ticket_created webhook
+      const customerWebhooks = await prisma.webhooks.findMany({
+        where: { type: "customer_ticket_created" },
+      });
+
+      for (const webhook of customerWebhooks) {
+        if (webhook.active) {
+          const message = {
+            event: "customer_ticket_created",
+            id: ticket.id,
+            title: imapEmail.subject || "-",
+            content: text || "No Body",
+            htmlContent: html || textAsHtml,
+            email: from.value[0].address,
+            name: from.value[0].name || "",
+            priority: "low",
+            fromImap: true,
+            isCustomer: true,
+          };
+          console.log("Triggering customer_ticket_created webhook:", webhook.url);
+          await sendWebhookNotification(webhook, message);
+        }
+      }
     }
   }
+
 
   static async fetchEmails(): Promise<void> {
     const queues =
