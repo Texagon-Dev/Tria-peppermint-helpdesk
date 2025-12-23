@@ -23,6 +23,8 @@ export type Ticket = {
   team?: Team;
   assignedTo?: User;
   isComplete: boolean;
+  detail?: string;
+  note?: string;
 };
 
 export type KanbanColumn = {
