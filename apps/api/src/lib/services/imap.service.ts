@@ -64,6 +64,8 @@ export class ImapService {
 
     console.log("isReply", isReply);
 
+    let handledAsReply = false;
+
     if (isReply) {
       // First try to match UUID format
       const uuidMatch = subject.match(
@@ -75,58 +77,64 @@ export class ImapService {
 
       console.log("TICKET ID", ticketId);
 
-      if (!ticketId) {
-        throw new Error(`Could not extract ticket ID from subject: ${subject}`);
-      }
+      if (ticketId) {
+        const ticket = await prisma.ticket.findFirst({
+          where: {
+            id: ticketId,
+          },
+        });
 
-      const ticket = await prisma.ticket.findFirst({
-        where: {
-          id: ticketId,
-        },
-      });
+        console.log("TICKET", ticket);
 
-      console.log("TICKET", ticket);
+        if (ticket) {
+          // Found the ticket - add as comment
+          const replyText = getReplyText(parsed);
 
-      if (!ticket) {
-        throw new Error(`Ticket not found: ${ticketId}`);
-      }
+          const comment = await prisma.comment.create({
+            data: {
+              text: text ? replyText : "No Body",
+              userId: null,
+              ticketId: ticket.id,
+              reply: true,
+              replyEmail: from.value[0].address,
+              public: true,
+            },
+          });
 
-      const replyText = getReplyText(parsed);
+          // Trigger customer_reply_received webhook
+          const replyWebhooks = await prisma.webhooks.findMany({
+            where: { type: "customer_reply_received" },
+          });
 
-      const comment = await prisma.comment.create({
-        data: {
-          text: text ? replyText : "No Body",
-          userId: null,
-          ticketId: ticket.id,
-          reply: true,
-          replyEmail: from.value[0].address,
-          public: true,
-        },
-      });
+          for (const webhook of replyWebhooks) {
+            if (webhook.active) {
+              const message = {
+                event: "customer_reply_received",
+                ticketId: ticket.id,
+                ticketTitle: ticket.title,
+                commentId: comment.id,
+                replyContent: text ? replyText : "No Body",
+                customerEmail: from.value[0].address,
+                customerName: from.value[0].name || "",
+                isCustomer: true,
+                fromImap: true,
+              };
+              console.log("Triggering customer_reply_received webhook:", webhook.url);
+              await sendWebhookNotification(webhook, message);
+            }
+          }
 
-      // Trigger customer_reply_received webhook
-      const replyWebhooks = await prisma.webhooks.findMany({
-        where: { type: "customer_reply_received" },
-      });
-
-      for (const webhook of replyWebhooks) {
-        if (webhook.active) {
-          const message = {
-            event: "customer_reply_received",
-            ticketId: ticket.id,
-            ticketTitle: ticket.title,
-            commentId: comment.id,
-            replyContent: text ? replyText : "No Body",
-            customerEmail: from.value[0].address,
-            customerName: from.value[0].name || "",
-            isCustomer: true,
-            fromImap: true,
-          };
-          console.log("Triggering customer_reply_received webhook:", webhook.url);
-          await sendWebhookNotification(webhook, message);
+          handledAsReply = true;
+        } else {
+          console.warn(`Ticket not found: ${ticketId}. Creating as new ticket.`);
         }
+      } else {
+        console.warn(`Could not extract ticket ID from subject: ${subject}. Creating as new ticket.`);
       }
-    } else {
+    }
+
+    // If not a reply OR couldn't process as reply, create as new ticket
+    if (!handledAsReply) {
       const imapEmail = await prisma.imap_Email.create({
         data: {
           from: from.value[0].address,
@@ -174,6 +182,7 @@ export class ImapService {
       }
     }
   }
+
 
 
   static async fetchEmails(): Promise<void> {
