@@ -4,6 +4,11 @@ import { simpleParser } from "mailparser";
 import { prisma } from "../../prisma";
 import { EmailConfig, EmailQueue } from "../types/email";
 import { AuthService } from "./auth.service";
+import { sendWebhookNotification } from "../notifications/webhook";
+import { TicketPriority } from "../types/ticket";
+import pino from "pino";
+
+const logger = pino();
 
 function getReplyText(email: any): string {
   const parsed = new EmailReplyParser().read(email.text);
@@ -12,7 +17,7 @@ function getReplyText(email: any): string {
   let replyText = "";
 
   fragments.forEach((fragment: any) => {
-    console.log("FRAGMENT", fragment._content, fragment.content);
+    // logger.debug({ content: fragment._content, full: fragment.content }, "FRAGMENT");
     if (!fragment._isHidden && !fragment._isSignature && !fragment._isQuoted) {
       replyText += fragment._content;
     }
@@ -61,48 +66,90 @@ export class ImapService {
   ): Promise<void> {
     const { from, subject, text, html, textAsHtml } = parsed;
 
-    console.log("isReply", isReply);
+    // Validate sender address
+    if (!from?.value?.[0]?.address) {
+      logger.warn(`Skipping email with invalid sender: ${subject}`);
+      return;
+    }
+
+    logger.info({ isReply }, "Processing email");
+
+    let handledAsReply = false;
 
     if (isReply) {
       // First try to match UUID format
       const uuidMatch = subject.match(
         /(?:ref:|#)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
       );
-      console.log("UUID MATCH", uuidMatch);
+      logger.debug({ uuidMatch }, "UUID MATCH");
 
       const ticketId = uuidMatch?.[1];
 
-      console.log("TICKET ID", ticketId);
+      logger.debug({ ticketId }, "TICKET ID");
 
-      if (!ticketId) {
-        throw new Error(`Could not extract ticket ID from subject: ${subject}`);
+      if (ticketId) {
+        const ticket = await prisma.ticket.findFirst({
+          where: {
+            id: ticketId,
+          },
+        });
+
+        logger.debug({ ticket }, "TICKET found");
+
+        if (ticket) {
+          // Found the ticket - add as comment
+          const replyText = getReplyText(parsed);
+
+          const comment = await prisma.comment.create({
+            data: {
+              text: text ? replyText : "No Body",
+              userId: null,
+              ticketId: ticket.id,
+              reply: true,
+              replyEmail: from.value[0].address,
+              public: true,
+            },
+          });
+
+          // Trigger customer_reply_received webhook
+          const replyWebhooks = await prisma.webhooks.findMany({
+            where: { type: "customer_reply_received", active: true },
+          });
+
+          await Promise.all(
+            replyWebhooks.map(async (webhook) => {
+              const message = {
+                event: "customer_reply_received",
+                ticketId: ticket.id,
+                ticketTitle: ticket.title,
+                commentId: comment.id,
+                replyContent: text ? replyText : "No Body",
+                customerEmail: from.value[0].address,
+                customerName: from.value[0].name || "",
+                isCustomer: true,
+                fromImap: true,
+              };
+              logger.info(
+                { url: webhook.url },
+                "Triggering customer_reply_received webhook"
+              );
+              await sendWebhookNotification(webhook, message);
+            })
+          );
+
+          handledAsReply = true;
+        } else {
+          logger.warn(`Ticket not found: ${ticketId}. Creating as new ticket.`);
+        }
+      } else {
+        logger.warn(
+          `Could not extract ticket ID from subject: ${subject}. Creating as new ticket.`
+        );
       }
+    }
 
-      const ticket = await prisma.ticket.findFirst({
-        where: {
-          id: ticketId,
-        },
-      });
-
-      console.log("TICKET", ticket);
-
-      if (!ticket) {
-        throw new Error(`Ticket not found: ${ticketId}`);
-      }
-
-      const replyText = getReplyText(parsed);
-
-      await prisma.comment.create({
-        data: {
-          text: text ? replyText : "No Body",
-          userId: null,
-          ticketId: ticket.id,
-          reply: true,
-          replyEmail: from.value[0].address,
-          public: true,
-        },
-      });
-    } else {
+    // If not a reply OR couldn't process as reply, create as new ticket
+    if (!handledAsReply) {
       const imapEmail = await prisma.imap_Email.create({
         data: {
           from: from.value[0].address,
@@ -113,17 +160,44 @@ export class ImapService {
         },
       });
 
-      await prisma.ticket.create({
+      const ticket = await prisma.ticket.create({
         data: {
           email: from.value[0].address,
           name: from.value[0].name,
           title: imapEmail.subject || "-",
           isComplete: false,
-          priority: "low",
+          priority: TicketPriority.LOW,
           fromImap: true,
           detail: html || textAsHtml,
         },
       });
+
+      // Trigger customer_ticket_created webhook
+      const customerWebhooks = await prisma.webhooks.findMany({
+        where: { type: "customer_ticket_created", active: true },
+      });
+
+      await Promise.all(
+        customerWebhooks.map(async (webhook) => {
+          const message = {
+            event: "customer_ticket_created",
+            id: ticket.id,
+            title: imapEmail.subject || "-",
+            content: text || "No Body",
+            htmlContent: html || textAsHtml,
+            email: from.value[0].address,
+            name: from.value[0].name || "",
+            priority: TicketPriority.LOW,
+            fromImap: true,
+            isCustomer: true,
+          };
+          logger.info(
+            { url: webhook.url },
+            "Triggering customer_ticket_created webhook"
+          );
+          await sendWebhookNotification(webhook, message);
+        })
+      );
     }
   }
 
@@ -137,7 +211,7 @@ export class ImapService {
         const imapConfig = await this.getImapConfig(queue);
 
         if (queue.serviceType === "other" && !imapConfig.password) {
-          console.error("IMAP configuration is missing a password");
+          logger.error("IMAP configuration is missing a password");
           throw new Error("IMAP configuration is missing a password");
         }
 
@@ -154,7 +228,7 @@ export class ImapService {
               imap.search(["UNSEEN", ["ON", today]], (err, results) => {
                 if (err) reject(err);
                 if (!results?.length) {
-                  console.log("No new messages");
+                  logger.info("No new messages");
                   imap.end();
                   resolve(null);
                   return;
@@ -176,14 +250,14 @@ export class ImapService {
 
                   msg.once("attributes", (attrs) => {
                     imap.addFlags(attrs.uid, ["\\Seen"], () => {
-                      console.log("Marked as read!");
+                      logger.info("Marked as read!");
                     });
                   });
                 });
 
                 fetch.once("error", reject);
                 fetch.once("end", () => {
-                  console.log("Done fetching messages");
+                  logger.info("Done fetching messages");
                   imap.end();
                   resolve(null);
                 });
@@ -193,14 +267,14 @@ export class ImapService {
 
           imap.once("error", reject);
           imap.once("end", () => {
-            console.log("Connection ended");
+            logger.info("Connection ended");
             resolve(null);
           });
 
           imap.connect();
         });
       } catch (error) {
-        console.error(`Error processing queue ${queue.id}:`, error);
+        logger.error({ error, queueId: queue.id }, "Error processing queue");
       }
     }
   }
