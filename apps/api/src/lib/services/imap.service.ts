@@ -5,6 +5,10 @@ import { prisma } from "../../prisma";
 import { EmailConfig, EmailQueue } from "../types/email";
 import { AuthService } from "./auth.service";
 import { sendWebhookNotification } from "../notifications/webhook";
+import { TicketPriority } from "../types/ticket";
+import pino from "pino";
+
+const logger = pino();
 
 function getReplyText(email: any): string {
   const parsed = new EmailReplyParser().read(email.text);
@@ -13,7 +17,7 @@ function getReplyText(email: any): string {
   let replyText = "";
 
   fragments.forEach((fragment: any) => {
-    console.log("FRAGMENT", fragment._content, fragment.content);
+    // logger.debug({ content: fragment._content, full: fragment.content }, "FRAGMENT");
     if (!fragment._isHidden && !fragment._isSignature && !fragment._isQuoted) {
       replyText += fragment._content;
     }
@@ -62,7 +66,13 @@ export class ImapService {
   ): Promise<void> {
     const { from, subject, text, html, textAsHtml } = parsed;
 
-    console.log("isReply", isReply);
+    // Validate sender address
+    if (!from?.value?.[0]?.address) {
+      logger.warn(`Skipping email with invalid sender: ${subject}`);
+      return;
+    }
+
+    logger.info({ isReply }, "Processing email");
 
     let handledAsReply = false;
 
@@ -71,11 +81,11 @@ export class ImapService {
       const uuidMatch = subject.match(
         /(?:ref:|#)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
       );
-      console.log("UUID MATCH", uuidMatch);
+      logger.debug({ uuidMatch }, "UUID MATCH");
 
       const ticketId = uuidMatch?.[1];
 
-      console.log("TICKET ID", ticketId);
+      logger.debug({ ticketId }, "TICKET ID");
 
       if (ticketId) {
         const ticket = await prisma.ticket.findFirst({
@@ -84,7 +94,7 @@ export class ImapService {
           },
         });
 
-        console.log("TICKET", ticket);
+        logger.debug({ ticket }, "TICKET found");
 
         if (ticket) {
           // Found the ticket - add as comment
@@ -103,11 +113,11 @@ export class ImapService {
 
           // Trigger customer_reply_received webhook
           const replyWebhooks = await prisma.webhooks.findMany({
-            where: { type: "customer_reply_received" },
+            where: { type: "customer_reply_received", active: true },
           });
 
-          for (const webhook of replyWebhooks) {
-            if (webhook.active) {
+          await Promise.all(
+            replyWebhooks.map(async (webhook) => {
               const message = {
                 event: "customer_reply_received",
                 ticketId: ticket.id,
@@ -119,17 +129,22 @@ export class ImapService {
                 isCustomer: true,
                 fromImap: true,
               };
-              console.log("Triggering customer_reply_received webhook:", webhook.url);
+              logger.info(
+                { url: webhook.url },
+                "Triggering customer_reply_received webhook"
+              );
               await sendWebhookNotification(webhook, message);
-            }
-          }
+            })
+          );
 
           handledAsReply = true;
         } else {
-          console.warn(`Ticket not found: ${ticketId}. Creating as new ticket.`);
+          logger.warn(`Ticket not found: ${ticketId}. Creating as new ticket.`);
         }
       } else {
-        console.warn(`Could not extract ticket ID from subject: ${subject}. Creating as new ticket.`);
+        logger.warn(
+          `Could not extract ticket ID from subject: ${subject}. Creating as new ticket.`
+        );
       }
     }
 
@@ -151,7 +166,7 @@ export class ImapService {
           name: from.value[0].name,
           title: imapEmail.subject || "-",
           isComplete: false,
-          priority: "low",
+          priority: TicketPriority.LOW,
           fromImap: true,
           detail: html || textAsHtml,
         },
@@ -159,11 +174,11 @@ export class ImapService {
 
       // Trigger customer_ticket_created webhook
       const customerWebhooks = await prisma.webhooks.findMany({
-        where: { type: "customer_ticket_created" },
+        where: { type: "customer_ticket_created", active: true },
       });
 
-      for (const webhook of customerWebhooks) {
-        if (webhook.active) {
+      await Promise.all(
+        customerWebhooks.map(async (webhook) => {
           const message = {
             event: "customer_ticket_created",
             id: ticket.id,
@@ -172,18 +187,19 @@ export class ImapService {
             htmlContent: html || textAsHtml,
             email: from.value[0].address,
             name: from.value[0].name || "",
-            priority: "low",
+            priority: TicketPriority.LOW,
             fromImap: true,
             isCustomer: true,
           };
-          console.log("Triggering customer_ticket_created webhook:", webhook.url);
+          logger.info(
+            { url: webhook.url },
+            "Triggering customer_ticket_created webhook"
+          );
           await sendWebhookNotification(webhook, message);
-        }
-      }
+        })
+      );
     }
   }
-
-
 
   static async fetchEmails(): Promise<void> {
     const queues =
@@ -195,7 +211,7 @@ export class ImapService {
         const imapConfig = await this.getImapConfig(queue);
 
         if (queue.serviceType === "other" && !imapConfig.password) {
-          console.error("IMAP configuration is missing a password");
+          logger.error("IMAP configuration is missing a password");
           throw new Error("IMAP configuration is missing a password");
         }
 
@@ -212,7 +228,7 @@ export class ImapService {
               imap.search(["UNSEEN", ["ON", today]], (err, results) => {
                 if (err) reject(err);
                 if (!results?.length) {
-                  console.log("No new messages");
+                  logger.info("No new messages");
                   imap.end();
                   resolve(null);
                   return;
@@ -234,14 +250,14 @@ export class ImapService {
 
                   msg.once("attributes", (attrs) => {
                     imap.addFlags(attrs.uid, ["\\Seen"], () => {
-                      console.log("Marked as read!");
+                      logger.info("Marked as read!");
                     });
                   });
                 });
 
                 fetch.once("error", reject);
                 fetch.once("end", () => {
-                  console.log("Done fetching messages");
+                  logger.info("Done fetching messages");
                   imap.end();
                   resolve(null);
                 });
@@ -251,14 +267,14 @@ export class ImapService {
 
           imap.once("error", reject);
           imap.once("end", () => {
-            console.log("Connection ended");
+            logger.info("Connection ended");
             resolve(null);
           });
 
           imap.connect();
         });
       } catch (error) {
-        console.error(`Error processing queue ${queue.id}:`, error);
+        logger.error({ error, queueId: queue.id }, "Error processing queue");
       }
     }
   }
