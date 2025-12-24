@@ -103,8 +103,10 @@ export class ImapService {
   private static async matchByGmailThreadId(
     headers: Headers
   ): Promise<Ticket | null> {
-    const gmailThreadId = headers.get("x-gm-thrid");
-    if (!gmailThreadId || typeof gmailThreadId !== "string") return null;
+    const gmailThreadIdRaw = headers.get("x-gm-thrid");
+    // Convert to string to handle BigInt values from Gmail
+    const gmailThreadId = gmailThreadIdRaw ? String(gmailThreadIdRaw) : null;
+    if (!gmailThreadId) return null;
 
     logger.debug({ gmailThreadId }, "Layer 1: Checking Gmail Thread ID");
 
@@ -264,12 +266,10 @@ export class ImapService {
       return;
     }
 
-    // Get Gmail Thread ID if available
-    const gmailThreadId = headers.get("x-gm-thrid");
-    const threadId =
-      typeof gmailThreadId === "string"
-        ? gmailThreadId
-        : normalizedMessageId;
+    // Get Gmail Thread ID if available (convert to string to handle BigInt)
+    const gmailThreadIdRaw = headers.get("x-gm-thrid");
+    const gmailThreadId = gmailThreadIdRaw ? String(gmailThreadIdRaw) : null;
+    const threadId = gmailThreadId || normalizedMessageId;
 
     // Get In-Reply-To for comment tracking
     const inReplyToRaw = headers.get("in-reply-to");
