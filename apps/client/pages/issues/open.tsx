@@ -34,7 +34,7 @@ import { useQuery } from "react-query";
 import { useUser } from "../../store/session";
 
 async function getUserTickets(token: any) {
-  const res = await fetch(`/api/v1/tickets/user/open`, {
+  const res = await fetch(`/api/v1/tickets/open`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -153,18 +153,18 @@ export default function Tickets() {
 
   const filteredTickets = data
     ? data.tickets.filter((ticket) => {
-        const priorityMatch =
-          selectedPriorities.length === 0 ||
-          selectedPriorities.includes(ticket.priority);
-        const statusMatch =
-          selectedStatuses.length === 0 ||
-          selectedStatuses.includes(ticket.isComplete ? "closed" : "open");
-        const assigneeMatch =
-          selectedAssignees.length === 0 ||
-          selectedAssignees.includes(ticket.assignedTo?.name || "Unassigned");
+      const priorityMatch =
+        selectedPriorities.length === 0 ||
+        selectedPriorities.includes(ticket.priority);
+      const statusMatch =
+        selectedStatuses.length === 0 ||
+        selectedStatuses.includes(ticket.isComplete ? "closed" : "open");
+      const assigneeMatch =
+        selectedAssignees.length === 0 ||
+        selectedAssignees.includes(ticket.assignedTo?.name || "Unassigned");
 
-        return priorityMatch && statusMatch && assigneeMatch;
-      })
+      return priorityMatch && statusMatch && assigneeMatch;
+    })
     : [];
 
   type FilterType = "priority" | "status" | "assignee" | null;
@@ -515,15 +515,15 @@ export default function Tickets() {
                   {(selectedPriorities.length > 0 ||
                     selectedStatuses.length > 0 ||
                     selectedAssignees.length > 0) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
-                      onClick={clearAllFilters}
-                    >
-                      Clear all
-                    </Button>
-                  )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={clearAllFilters}
+                      >
+                        Clear all
+                      </Button>
+                    )}
                 </div>
               </div>
               <div></div>
