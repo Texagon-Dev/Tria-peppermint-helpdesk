@@ -140,6 +140,12 @@ model Ticket {
   locked     Boolean      @default(false)
   following  Json?
 
+  // Thread Matching Fields
+  threadId     String?  @unique // Gmail X-GM-THRID or root Message-ID
+  externalIds  String[] // All Message-IDs associated with this ticket
+  mergedIntoId String?  // If this ticket was merged into another one
+  metadata     Json?    // Flexible storage for provider-specific headers
+
   TicketFile   TicketFile[]
   Comment      Comment[]
   TimeTracking TimeTracking[]
@@ -182,6 +188,10 @@ model Comment {
   edited     Boolean   @default(false)
   editedAt   DateTime?
   previous   String?
+
+  // RFC 5322 Thread Matching Fields
+  messageId String?  @unique // The unique Message-ID of this email/reply
+  inReplyTo String?  // The Message-ID this comment is responding to
 
   userId   String?
   user     User?   @relation(fields: [userId], references: [id])

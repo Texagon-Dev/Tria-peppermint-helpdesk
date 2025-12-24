@@ -60,24 +60,24 @@ export function ticketRoutes(fastify: FastifyInstance) {
           type: type ? type.toLowerCase() : "support",
           createdBy: createdBy
             ? {
-                id: createdBy.id,
-                name: createdBy.name,
-                role: createdBy.role,
-                email: createdBy.email,
-              }
+              id: createdBy.id,
+              name: createdBy.name,
+              role: createdBy.role,
+              email: createdBy.email,
+            }
             : undefined,
           client:
             company !== undefined
               ? {
-                  connect: { id: company.id || company },
-                }
+                connect: { id: company.id || company },
+              }
               : undefined,
           fromImap: false,
           assignedTo:
             engineer && engineer.name !== "Unassigned"
               ? {
-                  connect: { id: engineer.id },
-                }
+                connect: { id: engineer.id },
+              }
               : undefined,
           isComplete: Boolean(false),
         },
@@ -164,24 +164,24 @@ export function ticketRoutes(fastify: FastifyInstance) {
           type: type ? type.toLowerCase() : "support",
           createdBy: createdBy
             ? {
-                id: createdBy.id,
-                name: createdBy.name,
-                role: createdBy.role,
-                email: createdBy.email,
-              }
+              id: createdBy.id,
+              name: createdBy.name,
+              role: createdBy.role,
+              email: createdBy.email,
+            }
             : undefined,
           client:
             company !== undefined
               ? {
-                  connect: { id: company.id || company },
-                }
+                connect: { id: company.id || company },
+              }
               : undefined,
           fromImap: false,
           assignedTo:
             engineer && engineer.name !== "Unassigned"
               ? {
-                  connect: { id: engineer.id },
-                }
+                connect: { id: engineer.id },
+              }
               : undefined,
           isComplete: Boolean(false),
         },
@@ -665,16 +665,49 @@ export function ticketRoutes(fastify: FastifyInstance) {
         },
       });
 
+      // Fetch ticket with threading fields
       const ticket = await prisma.ticket.findUnique({
         where: {
           id: id,
         },
+        select: {
+          id: true,
+          email: true,
+          title: true,
+          externalIds: true,
+        },
       });
 
-      //@ts-expect-error
-      const { email, title } = ticket;
-      if (public_comment && email) {
-        sendComment(text, title, ticket!.id, email!);
+      const { email, title, externalIds } = ticket || {};
+
+      if (ticket && public_comment && email) {
+        // Get the last Message-ID for In-Reply-To header
+        const lastMessageId = externalIds && externalIds.length > 0
+          ? externalIds[externalIds.length - 1]
+          : undefined;
+
+        // Send comment email with threading headers
+        const sentMessageId = await sendComment({
+          comment: text,
+          title: title || '',
+          ticketId: ticket.id,
+          email: email,
+          originalSubject: title,
+          inReplyTo: lastMessageId,
+          references: externalIds || [],
+        });
+
+        // Store the outbound message ID for future thread matching
+        if (sentMessageId) {
+          await prisma.ticket.update({
+            where: { id: ticket.id },
+            data: {
+              externalIds: {
+                push: sentMessageId,
+              },
+            },
+          });
+        }
       }
 
       await commentNotification(ticket, user);
@@ -683,7 +716,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
 
       hog.capture({
         event: "ticket_comment",
-        distinctId: ticket!.id,
+        distinctId: ticket?.id || id,
       });
 
       reply.send({
@@ -847,7 +880,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/api/v1/tickets/imap/all",
 
-    async (request: FastifyRequest, reply: FastifyReply) => {}
+    async (request: FastifyRequest, reply: FastifyReply) => { }
   );
 
   // GET all ticket templates
