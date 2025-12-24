@@ -224,6 +224,33 @@ export class ImapService {
     // Only match against OPEN tickets (not closed/done)
     const openStatuses: TicketStatus[] = ["needs_support", "in_progress", "hold", "in_review"];
 
+    // Use full-text search for better performance on large tables
+    // Prisma fullTextSearch is enabled in schema.prisma previewFeatures
+    try {
+      const ticket = await prisma.ticket.findFirst({
+        where: {
+          email: from,
+          title: { search: normalizedSubject.split(/\s+/).join(' & ') },
+          status: { in: openStatuses },
+          isComplete: false,
+          locked: false,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (ticket) {
+        logger.info(
+          { ticketId: ticket.id },
+          "Layer 3: Matched by subject + sender heuristics (full-text)"
+        );
+        return ticket;
+      }
+    } catch (searchError) {
+      // Full-text search may fail on some databases, fall back to contains
+      logger.debug({ searchError }, "Full-text search failed, using contains fallback");
+    }
+
+    // Fallback to contains filter if full-text search fails or returns no results
     const ticket = await prisma.ticket.findFirst({
       where: {
         email: from,
@@ -238,7 +265,7 @@ export class ImapService {
     if (ticket) {
       logger.info(
         { ticketId: ticket.id },
-        "Layer 3: Matched by subject + sender heuristics"
+        "Layer 3: Matched by subject + sender heuristics (contains)"
       );
     }
     return ticket;

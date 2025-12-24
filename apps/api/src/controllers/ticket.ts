@@ -680,7 +680,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
 
       const { email, title, externalIds } = ticket || {};
 
-      if (public_comment && email) {
+      if (ticket && public_comment && email) {
         // Get the last Message-ID for In-Reply-To header
         const lastMessageId = externalIds && externalIds.length > 0
           ? externalIds[externalIds.length - 1]
@@ -690,7 +690,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         const sentMessageId = await sendComment({
           comment: text,
           title: title || '',
-          ticketId: ticket!.id,
+          ticketId: ticket.id,
           email: email,
           originalSubject: title,
           inReplyTo: lastMessageId,
@@ -698,7 +698,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         });
 
         // Store the outbound message ID for future thread matching
-        if (sentMessageId && ticket) {
+        if (sentMessageId) {
           await prisma.ticket.update({
             where: { id: ticket.id },
             data: {
@@ -716,7 +716,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
 
       hog.capture({
         event: "ticket_comment",
-        distinctId: ticket!.id,
+        distinctId: ticket?.id || id,
       });
 
       reply.send({
