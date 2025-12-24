@@ -9,7 +9,21 @@ import { TicketPriority } from "../types/ticket";
 import pino from "pino";
 import { Ticket, TicketStatus, Webhooks } from "@prisma/client";
 
-const logger = pino();
+// Custom serializer to handle BigInt values in pino
+const logger = pino({
+  serializers: {
+    err: (err) => {
+      if (err instanceof Error) {
+        return {
+          type: err.name,
+          message: err.message,
+          stack: err.stack,
+        };
+      }
+      return String(err);
+    },
+  },
+});
 
 /**
  * Safely convert a header value to string, handling BigInt and other types

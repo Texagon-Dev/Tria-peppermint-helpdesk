@@ -21,6 +21,6 @@ export type EmailQueue = {
   clientSecret?: string;
   refreshToken?: string;
   accessToken?: string;
-  expiresIn?: number;
+  expiresIn?: bigint | number;
   tls?: boolean;
 };

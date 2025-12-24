@@ -21,8 +21,10 @@ export class AuthService {
       queue;
 
     // Check if token is still valid (with 5 minute buffer)
+    // expiresIn is BigInt from Prisma, so convert to Number for comparison
     const now = Math.floor(Date.now() / 1000);
-    if (accessToken && expiresIn && now < (expiresIn - 300)) {
+    const expiresInNum = expiresIn ? Number(expiresIn) : 0;
+    if (accessToken && expiresInNum && now < (expiresInNum - 300)) {
       return accessToken;
     }
 
@@ -51,7 +53,7 @@ export class AuthService {
       const tokenInfo = await oauth2Client.getAccessToken();
 
       // Calculate new expiry time: current time + 1 hour (3600 seconds)
-      const newExpiryDate = Math.floor(Date.now() / 1000) + 3600;
+      const newExpiryDate = BigInt(Math.floor(Date.now() / 1000) + 3600);
 
       if (tokenInfo.token) {
         await prisma.emailQueue.update({
