@@ -555,7 +555,15 @@ export class ImapService {
           imap.connect();
         });
       } catch (error) {
-        logger.error({ error, queueId: queue.id }, "Error processing queue");
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        logger.error({
+          errorMessage,
+          errorStack,
+          queueId: queue.id,
+          username: queue.username,
+          serviceType: queue.serviceType
+        }, "Error processing queue");
       }
     }
   }
