@@ -12,6 +12,17 @@ import { Ticket, TicketStatus, Webhooks } from "@prisma/client";
 const logger = pino();
 
 /**
+ * Safely convert a header value to string, handling BigInt and other types
+ */
+function safeHeaderValue(value: any): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(v => safeHeaderValue(v)).join(' ');
+  return String(value);
+}
+
+/**
  * Normalize a Message-ID by removing angle brackets and trimming whitespace
  */
 function normalizeMessageId(messageId: string | undefined | null): string | null {
@@ -79,18 +90,18 @@ export class ImapService {
    * Prevents bot-on-bot email storms
    */
   private static isAutoReply(headers: Headers): boolean {
-    const autoSubmitted = headers.get("auto-submitted");
-    const xAutoResponse = headers.get("x-auto-response-suppress");
-    const xPeppermintAI = headers.get("x-peppermint-ai");
-    const precedence = headers.get("precedence");
-    const xAutoReply = headers.get("x-autoreply");
-    const xMsExchangeAuto = headers.get("x-ms-exchange-auto-submissions");
+    const autoSubmitted = safeHeaderValue(headers.get("auto-submitted"));
+    const xAutoResponse = safeHeaderValue(headers.get("x-auto-response-suppress"));
+    const xPeppermintAI = safeHeaderValue(headers.get("x-peppermint-ai"));
+    const precedence = safeHeaderValue(headers.get("precedence"));
+    const xAutoReply = safeHeaderValue(headers.get("x-autoreply"));
+    const xMsExchangeAuto = safeHeaderValue(headers.get("x-ms-exchange-auto-submissions"));
 
     return (
-      (typeof autoSubmitted === "string" && autoSubmitted !== "no") ||
+      (autoSubmitted !== null && autoSubmitted !== "no") ||
       !!xAutoResponse ||
       xPeppermintAI === "true" ||
-      ["bulk", "list", "auto_reply"].includes(precedence as string) ||
+      ["bulk", "list", "auto_reply"].includes(precedence || "") ||
       xAutoReply === "yes" ||
       !!xMsExchangeAuto
     );
@@ -103,9 +114,8 @@ export class ImapService {
   private static async matchByGmailThreadId(
     headers: Headers
   ): Promise<Ticket | null> {
-    const gmailThreadIdRaw = headers.get("x-gm-thrid");
-    // Convert to string to handle BigInt values from Gmail
-    const gmailThreadId = gmailThreadIdRaw ? String(gmailThreadIdRaw) : null;
+    // Use safeHeaderValue to handle BigInt values from Gmail
+    const gmailThreadId = safeHeaderValue(headers.get("x-gm-thrid"));
     if (!gmailThreadId) return null;
 
     logger.debug({ gmailThreadId }, "Layer 1: Checking Gmail Thread ID");
@@ -127,18 +137,17 @@ export class ImapService {
   private static async matchByMessageIdChain(
     headers: Headers
   ): Promise<Ticket | null> {
-    const referencesRaw = headers.get("references");
-    const inReplyToRaw = headers.get("in-reply-to");
+    const referencesRaw = safeHeaderValue(headers.get("references"));
+    const inReplyToRaw = safeHeaderValue(headers.get("in-reply-to"));
 
     // Parse References header (space-separated list of Message-IDs)
     let references: string[] = [];
-    if (typeof referencesRaw === "string") {
+    if (referencesRaw) {
       references = referencesRaw.split(/\s+/).filter(Boolean);
     }
 
     // Add In-Reply-To if present
-    const inReplyTo =
-      typeof inReplyToRaw === "string" ? inReplyToRaw : undefined;
+    const inReplyTo = inReplyToRaw || undefined;
 
     // Normalize all message IDs
     const messageIds = [...references, inReplyTo]
@@ -267,15 +276,12 @@ export class ImapService {
     }
 
     // Get Gmail Thread ID if available (convert to string to handle BigInt)
-    const gmailThreadIdRaw = headers.get("x-gm-thrid");
-    const gmailThreadId = gmailThreadIdRaw ? String(gmailThreadIdRaw) : null;
+    const gmailThreadId = safeHeaderValue(headers.get("x-gm-thrid"));
     const threadId = gmailThreadId || normalizedMessageId;
 
     // Get In-Reply-To for comment tracking
-    const inReplyToRaw = headers.get("in-reply-to");
-    const normalizedInReplyTo = normalizeMessageId(
-      typeof inReplyToRaw === "string" ? inReplyToRaw : null
-    );
+    const inReplyToValue = safeHeaderValue(headers.get("in-reply-to"));
+    const normalizedInReplyTo = normalizeMessageId(inReplyToValue);
 
     // Try to find an existing ticket using triple-layer matching
     const matchedTicket = await this.findMatchingTicket(
