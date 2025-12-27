@@ -17,7 +17,9 @@ dist/
 
 lib/
 .github
-.yarn 
+.yarn
+.git
+.turbo
 
 apps/api/node_modules
 apps/api/dist

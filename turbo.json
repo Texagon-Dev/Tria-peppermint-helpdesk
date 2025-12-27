@@ -1,7 +1,14 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": ["**/.env.*local"],
-  "globalEnv": ["NODE_ENV"],
+  "globalDependencies": [
+    "**/.env.*local"
+  ],
+  "globalEnv": [
+    "NODE_ENV",
+    "DATABASE_URL",
+    "SECRET",
+    "FRONTEND_URL"
+  ],
   "tasks": {
     "db:generate": {
       "cache": false
@@ -10,7 +17,9 @@
       "cache": false
     },
     "build": {
-      "outputs": ["dist/**", ".next/**"]
+      "outputs": [
+        "dist/**"
+      ]
     },
     "dev": {
       "cache": false,

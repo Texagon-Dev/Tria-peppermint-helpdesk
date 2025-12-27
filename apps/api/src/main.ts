@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import "dotenv/config";
-import Fastify, { FastifyInstance } from "fastify";
+import Fastify from "fastify";
 import multer from "fastify-multer";
 import fs from "fs";
 
@@ -18,21 +18,28 @@ const logFilePath = "./logs.log"; // Update this path to a writable location
 const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
 
 // Initialize Fastify with logger
-const server: FastifyInstance = Fastify({
+const server = Fastify({
   logger: {
     stream: logStream, // Use the writable stream
   },
   disableRequestLogging: true,
   trustProxy: true,
 });
-server.register(cors, {
-  origin: "*",
 
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+// Register CORS plugin (use type assertion to fix Fastify 5.x compatibility)
+const corsOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:3000",
+  "http://localhost:3000",
+];
+server.register(cors as any, {
+  origin: [...new Set(corsOrigins)],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "Cookie"],
 });
 
-server.register(multer.contentParser);
+// Register multer for file uploads (use type assertion to fix compatibility)
+server.register(multer.contentParser as any);
 
 registerRoutes(server);
 
@@ -60,6 +67,10 @@ server.get(
 // JWT authentication hook
 server.addHook("preHandler", async function (request: any, reply: any) {
   try {
+    // Skip auth for health check endpoint
+    if (request.url === "/" && request.method === "GET") {
+      return true;
+    }
     if (request.url === "/api/v1/auth/login" && request.method === "POST") {
       return true;
     }
@@ -81,42 +92,41 @@ server.addHook("preHandler", async function (request: any, reply: any) {
 
 const start = async () => {
   try {
-    // Run prisma generate and migrate commands before starting the server
-    await new Promise<void>((resolve, reject) => {
-      exec("npx prisma migrate deploy", (err, stdout, stderr) => {
-        if (err) {
-          console.error(err);
-          reject(err);
-        }
-        console.log(stdout);
-        console.error(stderr);
+    // Skip Prisma commands in development mode (already run via npm install)
+    // Only run in production to avoid Windows file lock issues
+    const isDev = process.env.NODE_ENV !== "production";
 
-        exec("npx prisma generate", (err, stdout, stderr) => {
-          if (err) {
-            console.error(err);
-            reject(err);
-          }
-          console.log(stdout);
-          console.error(stderr);
-        });
+    if (!isDev) {
+      const execAsync = require("util").promisify(exec);
+      try {
+        console.log("Running: npx prisma migrate deploy");
+        const { stdout: migrateOut, stderr: migrateErr } = await execAsync("npx prisma migrate deploy");
+        if (migrateOut) console.log(migrateOut);
+        if (migrateErr) console.error(migrateErr);
 
-        exec("npx prisma db seed", (err, stdout, stderr) => {
-          if (err) {
-            console.error(err);
-            reject(err);
-          }
-          console.log(stdout);
-          console.error(stderr);
-          resolve();
-        });
-      });
-    });
+        console.log("Running: npx prisma generate");
+        const { stdout: generateOut, stderr: generateErr } = await execAsync("npx prisma generate");
+        if (generateOut) console.log(generateOut);
+        if (generateErr) console.error(generateErr);
+
+        console.log("Running: npx prisma db seed");
+        const { stdout: seedOut, stderr: seedErr } = await execAsync("npx prisma db seed");
+        if (seedOut) console.log(seedOut);
+        if (seedErr) console.error(seedErr);
+      } catch (err) {
+        console.error("Failed to run Prisma commands:", err);
+        process.exit(1);
+      }
+    } else {
+      console.log("Development mode: Skipping Prisma migrate/generate/seed (run manually if needed)");
+    }
 
     // connect to database
     await prisma.$connect();
     server.log.info("Connected to Prisma");
 
-    const port = 5003;
+    // Use Railway's PORT env var, fallback to 5003 for local dev
+    const port = process.env.PORT || 5003;
 
     server.listen(
       { port: Number(port), host: "0.0.0.0" },
