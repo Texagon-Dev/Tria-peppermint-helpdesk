@@ -9,15 +9,17 @@ RUN apt-get update && apt-get install -y openssl
 COPY package*.json ./
 COPY apps/api/package*.json ./apps/api/
 
-# Install dependencies
+# Copy Prisma schema before npm install (needed for postinstall)
+COPY apps/api/src/prisma ./apps/api/src/prisma
+
+# Install dependencies (this runs prisma generate via postinstall)
 RUN npm install
 
-# Copy source
-COPY apps/api/ ./apps/api/
+# Copy remaining source
+COPY apps/api/src ./apps/api/src
 COPY turbo.json ./
 
-# Generate Prisma client and build
-RUN cd apps/api && npx prisma generate
+# Build TypeScript
 RUN npm run build
 
 # Runner stage
