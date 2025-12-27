@@ -1,6 +1,7 @@
 {
   "private": true,
   "name": "peppermint-backend",
+  "packageManager": "npm@10.8.2",
   "scripts": {
     "build": "turbo run build --filter=api",
     "dev": "npm run dev --workspace=api",
