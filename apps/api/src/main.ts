@@ -27,11 +27,12 @@ const server = Fastify({
 });
 
 // Register CORS plugin (use type assertion to fix Fastify 5.x compatibility)
+const corsOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:3000",
+  "http://localhost:3000",
+];
 server.register(cors as any, {
-  origin: [
-    process.env.FRONTEND_URL || "http://localhost:3000",
-    "http://localhost:3000",
-  ],
+  origin: [...new Set(corsOrigins)],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Accept", "Cookie"],
