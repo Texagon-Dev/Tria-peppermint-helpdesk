@@ -87,6 +87,13 @@ server.addHook("preHandler", async function (request: any, reply: any) {
     ) {
       return true;
     }
+    // Skip auth for Gmail SMTP OAuth callback
+    if (
+      request.url.startsWith("/api/v1/config/email/oauth/gmail") &&
+      request.method === "GET"
+    ) {
+      return true;
+    }
     const bearer = request.headers.authorization!.split(" ")[1];
     checkToken(bearer);
   } catch (err) {
