@@ -1,44 +1,43 @@
-FROM node:lts AS builder
+FROM node:20-slim AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-RUN apt-get update && \
-    apt-get install -y build-essential python3
+# Install OpenSSL for Prisma
+RUN apt-get update && apt-get install -y openssl
 
-# Copy the package.json and package-lock.json files for both apps
+# Copy workspace files
+COPY package*.json ./
 COPY apps/api/package*.json ./apps/api/
-COPY apps/client/package*.json ./apps/client/
-COPY ./ecosystem.config.js ./ecosystem.config.js
 
-RUN npm i -g prisma
-RUN npm i -g typescript@latest -g --force 
+# Install dependencies
+RUN npm install
 
-# Copy the source code for both apps
-COPY apps/api ./apps/api
-COPY apps/client ./apps/client
+# Copy source
+COPY apps/api/ ./apps/api/
+COPY turbo.json ./
 
-RUN cd apps/api && npm install --production
-RUN cd apps/api && npm i --save-dev @types/node && npm run build
+# Generate Prisma client and build
+RUN cd apps/api && npx prisma generate
+RUN npm run build
 
-RUN cd apps/client && yarn install --ignore-scripts --network-timeout 1000000
-RUN cd apps/client && yarn add --dev @types/minimatch @types/glob --network-timeout 1000000
-RUN cd apps/client && yarn build
+# Runner stage
+FROM node:20-slim AS runner
 
-FROM node:lts AS runner
+WORKDIR /app
 
-COPY --from=builder /app/apps/api/ ./apps/api/
-COPY --from=builder /app/apps/client/.next/standalone ./apps/client
-COPY --from=builder /app/apps/client/.next/static ./apps/client/.next/static
-COPY --from=builder /app/apps/client/public ./apps/client/public
-COPY --from=builder /app/ecosystem.config.js ./ecosystem.config.js
+# Install OpenSSL for Prisma
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
-# Expose the ports for both apps
-EXPOSE 3000 5003
+# Copy built files
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=builder /app/apps/api/package.json ./apps/api/
+COPY --from=builder /app/apps/api/src/prisma ./apps/api/src/prisma
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
 
-# Install PM2 globally
-RUN npm install -g pm2
+WORKDIR /app/apps/api
 
-# Start both apps using PM2
-CMD ["pm2-runtime", "ecosystem.config.js"]
+EXPOSE 5003
 
+CMD ["node", "dist/main.js"]

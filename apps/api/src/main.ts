@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import "dotenv/config";
-import Fastify, { FastifyInstance } from "fastify";
+import Fastify from "fastify";
 import multer from "fastify-multer";
 import fs from "fs";
 
@@ -18,21 +18,27 @@ const logFilePath = "./logs.log"; // Update this path to a writable location
 const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
 
 // Initialize Fastify with logger
-const server: FastifyInstance = Fastify({
+const server = Fastify({
   logger: {
     stream: logStream, // Use the writable stream
   },
   disableRequestLogging: true,
   trustProxy: true,
 });
-server.register(cors, {
-  origin: "*",
 
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+// Register CORS plugin (use type assertion to fix Fastify 5.x compatibility)
+server.register(cors as any, {
+  origin: [
+    process.env.FRONTEND_URL || "http://localhost:3000",
+    "http://localhost:3000",
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "Cookie"],
 });
 
-server.register(multer.contentParser);
+// Register multer for file uploads (use type assertion to fix compatibility)
+server.register(multer.contentParser as any);
 
 registerRoutes(server);
 
@@ -81,36 +87,44 @@ server.addHook("preHandler", async function (request: any, reply: any) {
 
 const start = async () => {
   try {
-    // Run prisma generate and migrate commands before starting the server
-    await new Promise<void>((resolve, reject) => {
-      exec("npx prisma migrate deploy", (err, stdout, stderr) => {
-        if (err) {
-          console.error(err);
-          reject(err);
-        }
-        console.log(stdout);
-        console.error(stderr);
+    // Skip Prisma commands in development mode (already run via npm install)
+    // Only run in production to avoid Windows file lock issues
+    const isDev = process.env.NODE_ENV !== "production";
 
-        exec("npx prisma generate", (err, stdout, stderr) => {
+    if (!isDev) {
+      // Run prisma generate and migrate commands before starting the server
+      await new Promise<void>((resolve, reject) => {
+        exec("npx prisma migrate deploy", (err, stdout, stderr) => {
           if (err) {
             console.error(err);
             reject(err);
           }
           console.log(stdout);
           console.error(stderr);
-        });
 
-        exec("npx prisma db seed", (err, stdout, stderr) => {
-          if (err) {
-            console.error(err);
-            reject(err);
-          }
-          console.log(stdout);
-          console.error(stderr);
-          resolve();
+          exec("npx prisma generate", (err, stdout, stderr) => {
+            if (err) {
+              console.error(err);
+              reject(err);
+            }
+            console.log(stdout);
+            console.error(stderr);
+          });
+
+          exec("npx prisma db seed", (err, stdout, stderr) => {
+            if (err) {
+              console.error(err);
+              reject(err);
+            }
+            console.log(stdout);
+            console.error(stderr);
+            resolve();
+          });
         });
       });
-    });
+    } else {
+      console.log("Development mode: Skipping Prisma migrate/generate/seed (run manually if needed)");
+    }
 
     // connect to database
     await prisma.$connect();
