@@ -66,6 +66,10 @@ server.get(
 // JWT authentication hook
 server.addHook("preHandler", async function (request: any, reply: any) {
   try {
+    // Skip auth for health check endpoint
+    if (request.url === "/" && request.method === "GET") {
+      return true;
+    }
     if (request.url === "/api/v1/auth/login" && request.method === "POST") {
       return true;
     }
@@ -130,7 +134,8 @@ const start = async () => {
     await prisma.$connect();
     server.log.info("Connected to Prisma");
 
-    const port = 5003;
+    // Use Railway's PORT env var, fallback to 5003 for local dev
+    const port = process.env.PORT || 5003;
 
     server.listen(
       { port: Number(port), host: "0.0.0.0" },
