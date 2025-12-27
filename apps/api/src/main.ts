@@ -80,6 +80,13 @@ server.addHook("preHandler", async function (request: any, reply: any) {
     ) {
       return true;
     }
+    // Skip auth for Gmail OAuth callback (Google redirects here without Bearer token)
+    if (
+      request.url.startsWith("/api/v1/email-queue/oauth/gmail") &&
+      request.method === "GET"
+    ) {
+      return true;
+    }
     const bearer = request.headers.authorization!.split(" ")[1];
     checkToken(bearer);
   } catch (err) {
