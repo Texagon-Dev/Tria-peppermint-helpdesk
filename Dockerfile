@@ -15,9 +15,11 @@ COPY apps/api/src/prisma ./apps/api/src/prisma
 # Install dependencies (this runs prisma generate via postinstall)
 RUN npm install
 
-# Copy remaining source
+# Copy remaining source and config files
 COPY apps/api/src ./apps/api/src
+COPY apps/api/tsconfig.json ./apps/api/
 COPY turbo.json ./
+COPY tsconfig.json ./
 
 # Build TypeScript
 RUN npm run build
