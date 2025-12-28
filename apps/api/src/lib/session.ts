@@ -10,7 +10,10 @@ export async function checkSession(request: FastifyRequest) {
     const apiKeyResult = await validateApiKey(request);
     if (apiKeyResult) {
       // API key auth successful - return user with API key context
-      return apiKeyResult.user;
+      return {
+        ...apiKeyResult.user,
+        apiKeyPermissions: apiKeyResult.permissions
+      };
     }
 
     // Fall back to JWT/session validation
