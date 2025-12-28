@@ -94,7 +94,16 @@ server.addHook("preHandler", async function (request: any, reply: any) {
     ) {
       return true;
     }
-    const bearer = request.headers.authorization!.split(" ")[1];
+    // Skip auth if API Key is present (handled by route middleware)
+    if (request.headers["x-api-key"]) {
+      return true;
+    }
+
+    const authHeader = request.headers.authorization;
+    if (!authHeader) {
+      throw new Error("No authorization header");
+    }
+    const bearer = authHeader.split(" ")[1];
     checkToken(bearer);
   } catch (err) {
     reply.status(401).send({
