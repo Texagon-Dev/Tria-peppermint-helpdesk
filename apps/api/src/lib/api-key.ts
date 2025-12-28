@@ -31,12 +31,15 @@ export async function validateApiKey(request: FastifyRequest): Promise<{
   try {
     const apiKey = request.headers["x-api-key"] as string | undefined;
 
+    // console.log("DEBUG: Checking API Key. Header present:", !!apiKey);
+
     if (!apiKey) {
       return null;
     }
 
     // Hash the incoming key to compare with stored hash
     const hashedKey = hashApiKey(apiKey);
+    // console.log("DEBUG: Hashed received key (first 10 chars):", hashedKey.substring(0, 10));
 
     // Find the API key in database
     const apiKeyRecord = await prisma.apiKey.findUnique({
@@ -45,18 +48,23 @@ export async function validateApiKey(request: FastifyRequest): Promise<{
     });
 
     if (!apiKeyRecord) {
+      console.log("DEBUG: API Key record not found for hash.");
       return null;
     }
 
     // Check if key is active
     if (!apiKeyRecord.active) {
+      console.log("DEBUG: API Key is inactive.");
       return null;
     }
 
     // Check if key has expired
     if (apiKeyRecord.expiresAt && apiKeyRecord.expiresAt < new Date()) {
+      console.log("DEBUG: API Key matches but is expired.");
       return null;
     }
+
+    console.log("DEBUG: API Key validated successfully for user:", apiKeyRecord.user.email);
 
     // Update lastUsedAt timestamp
     await prisma.apiKey.update({

@@ -77,21 +77,25 @@ export function requirePermission(
       if (config?.roles_active) {
         const userWithRoles = user
           ? await prisma.user.findUnique({
-              where: { id: user.id },
-              include: {
-                roles: true,
-              },
-            })
+            where: { id: user.id },
+            include: {
+              roles: true,
+            },
+          })
           : null;
 
         if (!userWithRoles) {
+          console.log("DEBUG: requirePermission - User not found or no session");
           return res.status(401).send({
             message: "Unauthorized",
             success: false,
           });
         }
 
+        // console.log(`DEBUG: Checking permissions for user ${userWithRoles.email}. Required: ${JSON.stringify(requiredPermissions)}`);
+
         if (!hasPermission(userWithRoles, requiredPermissions, requireAll)) {
+          console.log("DEBUG: requirePermission - Insufficient permissions");
           return res.status(401).send({
             message:
               "You do not have the required permission to access this resource.",
