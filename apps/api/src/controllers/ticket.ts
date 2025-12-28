@@ -268,6 +268,13 @@ export function ticketRoutes(fastify: FastifyInstance) {
         },
       });
 
+      if (!ticket) {
+        return reply.status(404).send({
+          success: false,
+          message: "Ticket not found",
+        });
+      }
+
       const timeTracking = await prisma.timeTracking.findMany({
         where: {
           ticketId: id,
