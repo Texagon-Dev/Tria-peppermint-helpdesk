@@ -73,6 +73,12 @@ export type DocumentPermission =
   | 'document::delete'
   | 'document::manage';
 
+export type ApiKeyPermission =
+  | 'apikey::create'
+  | 'apikey::read'
+  | 'apikey::delete'
+  | 'apikey::manage';
+
 export type Permission =
   | IssuePermission
   | UserPermission
@@ -84,7 +90,8 @@ export type Permission =
   | TimeTrackingPermission
   | ViewPermission
   | WebhookPermission
-  | DocumentPermission;
+  | DocumentPermission
+  | ApiKeyPermission;
 
 // Useful type for grouping permissions by category
 export const PermissionCategories = {
@@ -99,6 +106,7 @@ export const PermissionCategories = {
   VIEW: 'Views',
   WEBHOOK: 'Webhook Management',
   DOCUMENT: 'Document Management',
+  API_KEY: 'API Key Management',
 } as const;
 
 export type PermissionCategory = typeof PermissionCategories[keyof typeof PermissionCategories];
