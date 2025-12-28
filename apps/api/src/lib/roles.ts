@@ -82,7 +82,7 @@ export function requirePermission(
           : searchPermissions.some(p => apiKeyPermissions.has(p));
 
         if (!hasApiKeyPerm) {
-          console.log("DEBUG: requirePermission - Insufficient API Key permissions");
+
           return res.status(401).send({
             message: "You do not have the required permission to access this resource.",
             success: false,
@@ -106,7 +106,7 @@ export function requirePermission(
           : null;
 
         if (!userWithRoles) {
-          console.log("DEBUG: requirePermission - User not found or no session");
+
           return res.status(401).send({
             message: "Unauthorized",
             success: false,
@@ -116,7 +116,7 @@ export function requirePermission(
         // console.log(`DEBUG: Checking permissions for user ${userWithRoles.email}. Required: ${JSON.stringify(requiredPermissions)}`);
 
         if (!hasPermission(userWithRoles, requiredPermissions, requireAll)) {
-          console.log("DEBUG: requirePermission - Insufficient permissions");
+
           return res.status(401).send({
             message:
               "You do not have the required permission to access this resource.",

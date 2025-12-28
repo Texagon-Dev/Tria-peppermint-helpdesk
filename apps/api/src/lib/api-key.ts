@@ -48,23 +48,23 @@ export async function validateApiKey(request: FastifyRequest): Promise<{
     });
 
     if (!apiKeyRecord) {
-      console.log("DEBUG: API Key record not found for hash.");
+
       return null;
     }
 
     // Check if key is active
     if (!apiKeyRecord.active) {
-      console.log("DEBUG: API Key is inactive.");
+
       return null;
     }
 
     // Check if key has expired
     if (apiKeyRecord.expiresAt && apiKeyRecord.expiresAt < new Date()) {
-      console.log("DEBUG: API Key matches but is expired.");
+
       return null;
     }
 
-    console.log("DEBUG: API Key validated successfully for user:", apiKeyRecord.user.email);
+
 
     // Update lastUsedAt timestamp
     await prisma.apiKey.update({

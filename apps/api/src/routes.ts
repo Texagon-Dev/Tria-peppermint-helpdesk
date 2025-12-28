@@ -13,6 +13,7 @@ import { timeTrackingRoutes } from "./controllers/time";
 import { userRoutes } from "./controllers/users";
 import { webhookRoutes } from "./controllers/webhooks";
 
+
 export function registerRoutes(fastify: FastifyInstance) {
   apiKeyRoutes(fastify);
   authRoutes(fastify);
@@ -27,4 +28,5 @@ export function registerRoutes(fastify: FastifyInstance) {
   timeTrackingRoutes(fastify);
   objectStoreRoutes(fastify);
   roleRoutes(fastify);
+
 }
