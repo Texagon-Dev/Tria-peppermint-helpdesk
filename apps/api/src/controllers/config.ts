@@ -411,9 +411,12 @@ export function configRoutes(fastify: FastifyInstance) {
         const userEmail = userInfoResponse.data.email || "unknown@gmail.com";
 
         const email = await prisma.email.findFirst();
+        if (!email) {
+          throw new Error("Email configuration not found. Please restart the setup process.");
+        }
 
         await prisma.email.update({
-          where: { id: email?.id },
+          where: { id: email.id },
           data: {
             user: userEmail,
             reply: userEmail,
