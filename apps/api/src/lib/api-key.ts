@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { FastifyRequest } from "fastify";
-import { prisma } from "../prisma";
+import { prisma, User } from "../prisma";
 
 /**
  * Generates a new API key in the format pk_<32-char-random>
@@ -25,13 +25,11 @@ export function hashApiKey(key: string): string {
  * Returns the user object with permissions, or null if invalid
  */
 export async function validateApiKey(request: FastifyRequest): Promise<{
-  user: any;
+  user: User;
   permissions: string[];
 } | null> {
   try {
     const apiKey = request.headers["x-api-key"] as string | undefined;
-
-    // console.log("DEBUG: Checking API Key. Header present:", !!apiKey);
 
     if (!apiKey) {
       return null;
@@ -39,7 +37,6 @@ export async function validateApiKey(request: FastifyRequest): Promise<{
 
     // Hash the incoming key to compare with stored hash
     const hashedKey = hashApiKey(apiKey);
-    // console.log("DEBUG: Hashed received key (first 10 chars):", hashedKey.substring(0, 10));
 
     // Find the API key in database
     const apiKeyRecord = await prisma.apiKey.findUnique({
