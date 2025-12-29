@@ -242,4 +242,27 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
       });
     }
   );
+
+  // Manual email fetch endpoint
+  fastify.post(
+    "/api/v1/email-queue/fetch",
+
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { getEmails } = await import("../lib/imap");
+        await getEmails();
+
+        reply.send({
+          success: true,
+          message: "Email fetch triggered successfully",
+        });
+      } catch (error: any) {
+        console.error("Manual email fetch failed:", error);
+        reply.status(500).send({
+          success: false,
+          message: error.message || "Failed to fetch emails",
+        });
+      }
+    }
+  );
 }

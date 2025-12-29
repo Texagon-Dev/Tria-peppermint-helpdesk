@@ -171,7 +171,7 @@ const start = async () => {
       }
     );
 
-    setInterval(() => getEmails(), 10000); // Check for new emails every 10 seconds
+    setInterval(() => getEmails(), 30000); // Check for new emails every 30 seconds
   } catch (err) {
     server.log.error(err);
     await prisma.$disconnect();
