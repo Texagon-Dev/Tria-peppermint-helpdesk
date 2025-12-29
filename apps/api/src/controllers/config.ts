@@ -6,9 +6,11 @@
 // Feature Flags
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { OAuth2Client } from "google-auth-library";
+import axios from "axios";
 const nodemailer = require("nodemailer");
 
 import { track } from "../lib/hog";
+import { GMAIL_PENDING_EMAIL } from "../lib/constants";
 import { createTransportProvider } from "../lib/nodemailer/transport";
 import { requirePermission } from "../lib/roles";
 import { checkSession } from "../lib/session";
@@ -239,7 +241,84 @@ export function configRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // Update Email Provider Settings
+  // Get Gmail OAuth credentials from environment for SMTP
+  const getSmtpGmailCredentials = () => {
+    const clientId = process.env.GMAIL_CLIENT_ID;
+    const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+    const redirectUri = process.env.GMAIL_SMTP_REDIRECT_URI;
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      throw new Error(
+        "Gmail SMTP OAuth credentials not configured. Please set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_SMTP_REDIRECT_URI environment variables."
+      );
+    }
+
+    return { clientId, clientSecret, redirectUri };
+  };
+
+  // New endpoint: Get Gmail SMTP OAuth authorization URL
+  fastify.post(
+    "/api/v1/config/email/gmail/auth-url",
+
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { clientId, clientSecret, redirectUri } = getSmtpGmailCredentials();
+
+        // Create or update email config with pending status
+        const existingEmail = await prisma.email.findFirst();
+
+        if (existingEmail) {
+          await prisma.email.update({
+            where: { id: existingEmail.id },
+            data: {
+              host: "smtp.gmail.com",
+              port: "465",
+              serviceType: "gmail",
+              active: false,
+              user: GMAIL_PENDING_EMAIL,
+            },
+          });
+        } else {
+          await prisma.email.create({
+            data: {
+              host: "smtp.gmail.com",
+              port: "465",
+              serviceType: "gmail",
+              active: false,
+              user: GMAIL_PENDING_EMAIL,
+              reply: GMAIL_PENDING_EMAIL,
+            },
+          });
+        }
+
+        const google = new OAuth2Client(clientId, clientSecret, redirectUri);
+
+        const authorizeUrl = google.generateAuthUrl({
+          access_type: "offline",
+          scope: [
+            "https://mail.google.com",
+            "https://www.googleapis.com/auth/userinfo.email",
+          ],
+          prompt: "consent",
+        });
+
+        await tracking("gmail_smtp_oauth_initiated", {});
+
+        reply.send({
+          success: true,
+          message: "Gmail SMTP authorization URL generated!",
+          authorizeUrl: authorizeUrl,
+        });
+      } catch (error: any) {
+        reply.status(400).send({
+          success: false,
+          message: error.message,
+        });
+      }
+    }
+  );
+
+  // Update Email Provider Settings (for non-Gmail or manual config)
   fastify.put(
     "/api/v1/config/email",
 
@@ -252,10 +331,16 @@ export function configRoutes(fastify: FastifyInstance) {
         username,
         password,
         serviceType,
-        clientId,
-        clientSecret,
-        redirectUri,
       }: any = request.body;
+
+      // For Gmail, redirect to use the new endpoint
+      if (serviceType === "gmail") {
+        reply.status(400).send({
+          success: false,
+          message: "For Gmail SMTP, please use /api/v1/config/email/gmail/auth-url endpoint",
+        });
+        return;
+      }
 
       const email = await prisma.email.findFirst();
 
@@ -268,10 +353,7 @@ export function configRoutes(fastify: FastifyInstance) {
             user: username,
             pass: password,
             active: true,
-            clientId: clientId,
-            clientSecret: clientSecret,
-            serviceType: serviceType,
-            redirectUri: redirectUri,
+            serviceType: serviceType || "other",
           },
         });
       } else {
@@ -284,92 +366,79 @@ export function configRoutes(fastify: FastifyInstance) {
             user: username,
             pass: password,
             active: active,
-            clientId: clientId,
-            clientSecret: clientSecret,
-            serviceType: serviceType,
-            redirectUri: redirectUri,
+            serviceType: serviceType || "other",
           },
         });
       }
 
-      if (serviceType === "gmail") {
-        const email = await prisma.email.findFirst();
-
-        const google = new OAuth2Client(
-          //@ts-expect-error
-          email?.clientId,
-          email?.clientSecret,
-          email?.redirectUri
-        );
-
-        const authorizeUrl = google.generateAuthUrl({
-          access_type: "offline",
-          scope: "https://mail.google.com",
-          prompt: "consent",
-        });
-
-        reply.send({
-          success: true,
-          message: "SSO Provider updated!",
-          authorizeUrl: authorizeUrl,
-        });
-      }
-
       reply.send({
         success: true,
-        message: "SSO Provider updated!",
+        message: "Email settings updated!",
       });
     }
   );
 
-  // Google oauth callback
+  // Google oauth callback for SMTP
   fastify.get(
     "/api/v1/config/email/oauth/gmail",
 
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { code }: any = request.query;
+      try {
+        const { code }: any = request.query;
 
-      const email = await prisma.email.findFirst();
+        if (!code) {
+          reply.status(400).send({
+            success: false,
+            message: "Missing authorization code",
+          });
+          return;
+        }
 
-      const google = new OAuth2Client(
-        //@ts-expect-error
-        email?.clientId,
-        email?.clientSecret,
-        email?.redirectUri
-      );
+        const { clientId, clientSecret, redirectUri } = getSmtpGmailCredentials();
+        const google = new OAuth2Client(clientId, clientSecret, redirectUri);
 
-      const r = await google.getToken(code);
+        const r = await google.getToken(code);
 
-      await prisma.email.update({
-        where: { id: email?.id },
-        data: {
-          refreshToken: r.tokens.refresh_token,
-          accessToken: r.tokens.access_token,
-          expiresIn: r.tokens.expiry_date,
-          serviceType: "gmail",
-        },
-      });
+        // Fetch user email from Google userinfo API
+        const userInfoResponse = await axios.get(
+          "https://www.googleapis.com/oauth2/v3/userinfo",
+          {
+            headers: {
+              Authorization: `Bearer ${r.tokens.access_token}`,
+            },
+          }
+        );
 
-      const provider = nodemailer.createTransport({
-        service: "gmail",
-        host: "smtp.gmail.com",
-        port: 465,
-        secure: true,
-        auth: {
-          type: "OAuth2",
-          user: email?.user,
-          clientId: email?.clientId,
-          clientSecret: email?.clientSecret,
-          refreshToken: r.tokens.refresh_token,
-          accessToken: r.tokens.access_token,
-          expiresIn: r.tokens.expiry_date,
-        },
-      });
+        const userEmail = userInfoResponse.data.email || "unknown@gmail.com";
 
-      reply.send({
-        success: true,
-        message: "SSO Provider updated!",
-      });
+        const email = await prisma.email.findFirst();
+        if (!email) {
+          throw new Error("Email configuration not found. Please restart the setup process.");
+        }
+
+        await prisma.email.update({
+          where: { id: email.id },
+          data: {
+            user: userEmail,
+            reply: userEmail,
+            refreshToken: r.tokens.refresh_token,
+            accessToken: r.tokens.access_token,
+            expiresIn: r.tokens.expiry_date,
+            serviceType: "gmail",
+            active: true,
+          },
+        });
+
+        await tracking("gmail_smtp_oauth_completed", {});
+
+        // Redirect to frontend smtp page
+        const frontendUrl = process.env.FRONTEND_URL || "";
+        reply.redirect(`${frontendUrl}/admin/smtp?success=true`);
+      } catch (error: any) {
+        console.error("Gmail SMTP OAuth callback error:", error);
+        const frontendUrl = process.env.FRONTEND_URL || "";
+        reply.redirect(`${frontendUrl}/admin/smtp?error=${encodeURIComponent(error.message)}`);
+      }
     }
   );
 

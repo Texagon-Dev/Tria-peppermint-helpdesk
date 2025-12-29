@@ -80,7 +80,30 @@ server.addHook("preHandler", async function (request: any, reply: any) {
     ) {
       return true;
     }
-    const bearer = request.headers.authorization!.split(" ")[1];
+    // Skip auth for Gmail OAuth callback (Google redirects here without Bearer token)
+    if (
+      request.url.startsWith("/api/v1/email-queue/oauth/gmail") &&
+      request.method === "GET"
+    ) {
+      return true;
+    }
+    // Skip auth for Gmail SMTP OAuth callback
+    if (
+      request.url.startsWith("/api/v1/config/email/oauth/gmail") &&
+      request.method === "GET"
+    ) {
+      return true;
+    }
+    // Skip auth if API Key is present (handled by route middleware)
+    if (request.headers["x-api-key"]) {
+      return true;
+    }
+
+    const authHeader = request.headers.authorization;
+    if (!authHeader) {
+      throw new Error("No authorization header");
+    }
+    const bearer = authHeader.split(" ")[1];
     checkToken(bearer);
   } catch (err) {
     reply.status(401).send({
@@ -148,7 +171,7 @@ const start = async () => {
       }
     );
 
-    setInterval(() => getEmails(), 10000); // Check for new emails every 10 seconds
+    setInterval(() => getEmails(), 30000); // Check for new emails every 30 seconds
   } catch (err) {
     server.log.error(err);
     await prisma.$disconnect();

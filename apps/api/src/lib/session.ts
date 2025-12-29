@@ -1,10 +1,22 @@
 import { FastifyRequest } from "fastify";
 import jwt from "jsonwebtoken";
 import { prisma } from "../prisma";
+import { validateApiKey } from "./api-key";
 
-// Checks session token and returns user object
+// Checks session token or API key and returns user object
 export async function checkSession(request: FastifyRequest) {
   try {
+    // First, check for X-API-Key header (for service-to-service auth)
+    const apiKeyResult = await validateApiKey(request);
+    if (apiKeyResult) {
+      // API key auth successful - return user with API key context
+      return {
+        ...apiKeyResult.user,
+        apiKeyPermissions: apiKeyResult.permissions
+      };
+    }
+
+    // Fall back to JWT/session validation
     const bearer = request.headers.authorization?.split(" ")[1];
     if (!bearer) {
       return null;
@@ -61,3 +73,4 @@ export async function checkSession(request: FastifyRequest) {
     return null;
   }
 }
+

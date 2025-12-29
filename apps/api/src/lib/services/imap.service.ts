@@ -560,7 +560,6 @@ export class ImapService {
               imap.search(["UNSEEN", ["ON", today]], (err, results) => {
                 if (err) reject(err);
                 if (!results?.length) {
-                  logger.info("No new messages");
                   imap.end();
                   resolve(null);
                   return;
@@ -577,15 +576,12 @@ export class ImapService {
                   });
 
                   msg.once("attributes", (attrs) => {
-                    imap.addFlags(attrs.uid, ["\\Seen"], () => {
-                      logger.info("Marked as read!");
-                    });
+                    imap.addFlags(attrs.uid, ["\\Seen"], () => { });
                   });
                 });
 
                 fetch.once("error", reject);
                 fetch.once("end", () => {
-                  logger.info("Done fetching messages");
                   imap.end();
                   resolve(null);
                 });
@@ -595,7 +591,6 @@ export class ImapService {
 
           imap.once("error", reject);
           imap.once("end", () => {
-            logger.info("Connection ended");
             resolve(null);
           });
 

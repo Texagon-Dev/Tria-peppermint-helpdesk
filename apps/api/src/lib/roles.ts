@@ -72,19 +72,38 @@ export function requirePermission(
   return async (req: any, res: any, next: any) => {
     try {
       const user = await checkSession(req);
+      if (user && "apiKeyPermissions" in user) {
+        const apiKeyPermissions = new Set(user.apiKeyPermissions as string[]);
+        const searchPermissions = Array.isArray(requiredPermissions) ? requiredPermissions : [requiredPermissions];
+
+        const hasApiKeyPerm = requireAll
+          ? searchPermissions.every(p => apiKeyPermissions.has(p))
+          : searchPermissions.some(p => apiKeyPermissions.has(p));
+
+        if (!hasApiKeyPerm) {
+          return res.status(403).send({
+            message: "You do not have the required permission to access this resource.",
+            success: false,
+          });
+        }
+        // Permission granted via API Key
+        return;
+      }
+
       const config = await prisma.config.findFirst();
 
       if (config?.roles_active) {
         const userWithRoles = user
           ? await prisma.user.findUnique({
-              where: { id: user.id },
-              include: {
-                roles: true,
-              },
-            })
+            where: { id: user.id },
+            include: {
+              roles: true,
+            },
+          })
           : null;
 
         if (!userWithRoles) {
+
           return res.status(401).send({
             message: "Unauthorized",
             success: false,
@@ -92,11 +111,10 @@ export function requirePermission(
         }
 
         if (!hasPermission(userWithRoles, requiredPermissions, requireAll)) {
-          return res.status(401).send({
+          return res.status(403).send({
             message:
               "You do not have the required permission to access this resource.",
             success: false,
-            status: 403,
           });
         }
 

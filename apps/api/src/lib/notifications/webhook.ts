@@ -95,6 +95,9 @@ export async function sendWebhookNotification(webhook: any, message: any) {
     try {
       await axios.post(url, {
         data: message,
+        // Include 'question' field for Flowise/LangChain compatibility
+        // This populate $flow.input or "question" variable in the receiving agent
+        question: JSON.stringify({ data: message }),
       });
     } catch (error) {
       console.error("Error sending webhook:", error);

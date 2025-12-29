@@ -107,6 +107,7 @@ model User {
   notifications notifications[]
   TicketFile    TicketFile[]
   roles         Role[]
+  apiKeys       ApiKey[]
 }
 
 model Team {
@@ -271,6 +272,20 @@ model Webhooks {
   active    Boolean
   secret    String?
   createdBy String
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String    // e.g., "Flowise Integration"
+  key         String    @unique // SHA-256 hashed API key
+  prefix      String    // First 8 chars for display (pk_abc123...)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions String[]  // ["issue::read", "issue::comment"]
+  active      Boolean   @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime? // Optional expiration
+  createdAt   DateTime  @default(now())
 }
 
 model Discord {

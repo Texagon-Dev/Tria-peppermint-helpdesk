@@ -17,8 +17,15 @@ export class AuthService {
   }
 
   static async getValidAccessToken(queue: EmailQueue): Promise<string> {
-    const { clientId, clientSecret, refreshToken, accessToken, expiresIn } =
-      queue;
+    const { refreshToken, accessToken, expiresIn } = queue;
+
+    // Use environment variables for Gmail credentials (with fallback to queue for backwards compatibility)
+    const clientId = process.env.GMAIL_CLIENT_ID || queue.clientId;
+    const clientSecret = process.env.GMAIL_CLIENT_SECRET || queue.clientSecret;
+
+    if (!clientId || !clientSecret) {
+      throw new Error("Gmail OAuth credentials not configured. Please set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET environment variables.");
+    }
 
     // Check if token is still valid (with 5 minute buffer)
     // expiresIn is BigInt from Prisma, so convert to Number for comparison
