@@ -18,7 +18,7 @@ export function apiKeyRoutes(fastify: FastifyInstance) {
                 return reply.status(401).send({ success: false, message: "Unauthorized" });
             }
 
-            const { name, permissions, expiresAt }: any = request.body;
+            const { name, permissions, expiresAt } = request.body as { name?: string; permissions?: string[]; expiresAt?: string };
 
             if (!name) {
                 return reply.status(400).send({ success: false, message: "Name is required" });
@@ -117,7 +117,7 @@ export function apiKeyRoutes(fastify: FastifyInstance) {
                 return reply.status(401).send({ success: false, message: "Unauthorized" });
             }
 
-            const { id }: any = request.params;
+            const { id } = request.params as { id: string };
 
             // Check if API key exists and user has permission to delete it
             const apiKey = await prisma.apiKey.findUnique({
@@ -162,7 +162,7 @@ export function apiKeyRoutes(fastify: FastifyInstance) {
                 return reply.status(401).send({ success: false, message: "Unauthorized" });
             }
 
-            const { id }: any = request.params;
+            const { id } = request.params as { id: string };
 
             const apiKey = await prisma.apiKey.findUnique({
                 where: { id },
