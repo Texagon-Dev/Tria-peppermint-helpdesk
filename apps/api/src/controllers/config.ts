@@ -6,6 +6,7 @@
 // Feature Flags
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { OAuth2Client } from "google-auth-library";
+import axios from "axios";
 const nodemailer = require("nodemailer");
 
 import { track } from "../lib/hog";
@@ -399,7 +400,6 @@ export function configRoutes(fastify: FastifyInstance) {
         const r = await google.getToken(code);
 
         // Fetch user email from Google userinfo API
-        const axios = require("axios");
         const userInfoResponse = await axios.get(
           "https://www.googleapis.com/oauth2/v3/userinfo",
           {
