@@ -81,11 +81,9 @@ export function requirePermission(
           : searchPermissions.some(p => apiKeyPermissions.has(p));
 
         if (!hasApiKeyPerm) {
-
-          return res.status(401).send({
+          return res.status(403).send({
             message: "You do not have the required permission to access this resource.",
             success: false,
-            status: 403,
           });
         }
         // Permission granted via API Key
@@ -113,12 +111,10 @@ export function requirePermission(
         }
 
         if (!hasPermission(userWithRoles, requiredPermissions, requireAll)) {
-
-          return res.status(401).send({
+          return res.status(403).send({
             message:
               "You do not have the required permission to access this resource.",
             success: false,
-            status: 403,
           });
         }
 
