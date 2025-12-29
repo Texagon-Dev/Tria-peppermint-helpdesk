@@ -93,7 +93,7 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
         hostname,
         tls,
         serviceType,
-      }: any = request.body;
+      } = request.body as { name: string; username: string; password: string; hostname: string; tls?: boolean; serviceType?: string };
 
       // For Gmail, redirect to use the new /gmail/auth-url endpoint
       if (serviceType === "gmail") {
@@ -132,7 +132,7 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
 
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { code, state }: any = request.query;
+        const { code, state } = request.query as { code?: string; state?: string };
 
         if (!code || !state) {
           reply.status(400).send({
@@ -230,7 +230,7 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
     "/api/v1/email-queue/delete",
 
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id }: any = request.body;
+      const { id } = request.body as { id: string };
 
       await prisma.emailQueue.delete({
         where: {
@@ -257,11 +257,11 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
           success: true,
           message: "Email fetch triggered successfully",
         });
-      } catch (error: any) {
+      } catch (error) {
         console.error("Manual email fetch failed:", error);
         reply.status(500).send({
           success: false,
-          message: error.message || "Failed to fetch emails",
+          message: error instanceof Error ? error.message : "Failed to fetch emails",
         });
       }
     }
