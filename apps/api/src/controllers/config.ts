@@ -9,6 +9,7 @@ import { OAuth2Client } from "google-auth-library";
 const nodemailer = require("nodemailer");
 
 import { track } from "../lib/hog";
+import { GMAIL_PENDING_EMAIL } from "../lib/constants";
 import { createTransportProvider } from "../lib/nodemailer/transport";
 import { requirePermission } from "../lib/roles";
 import { checkSession } from "../lib/session";
@@ -273,7 +274,7 @@ export function configRoutes(fastify: FastifyInstance) {
               port: "465",
               serviceType: "gmail",
               active: false,
-              user: "pending@gmail.com",
+              user: GMAIL_PENDING_EMAIL,
             },
           });
         } else {
@@ -283,8 +284,8 @@ export function configRoutes(fastify: FastifyInstance) {
               port: "465",
               serviceType: "gmail",
               active: false,
-              user: "pending@gmail.com",
-              reply: "pending@gmail.com",
+              user: GMAIL_PENDING_EMAIL,
+              reply: GMAIL_PENDING_EMAIL,
             },
           });
         }

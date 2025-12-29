@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 import { OAuth2Client } from "google-auth-library";
 import { track } from "../lib/hog";
+import { GMAIL_PENDING_NAME, GMAIL_PENDING_EMAIL } from "../lib/constants";
 import { prisma } from "../prisma";
 
 async function tracking(event: string, properties: any) {
@@ -43,8 +44,8 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
         // Create a temporary email queue record
         const mailbox = await prisma.emailQueue.create({
           data: {
-            name: "Gmail (pending authorization)",
-            username: "pending@gmail.com",
+            name: GMAIL_PENDING_NAME,
+            username: GMAIL_PENDING_EMAIL,
             hostname: "imap.gmail.com",
             serviceType: "gmail",
           },
