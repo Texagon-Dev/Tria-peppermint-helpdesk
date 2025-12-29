@@ -72,9 +72,8 @@ export function requirePermission(
   return async (req: any, res: any, next: any) => {
     try {
       const user = await checkSession(req);
-      if (user && (user as any).apiKeyPermissions) {
-        // console.log("DEBUG: Using API Key permissions:", (user as any).apiKeyPermissions);
-        const apiKeyPermissions = new Set((user as any).apiKeyPermissions);
+      if (user && "apiKeyPermissions" in user) {
+        const apiKeyPermissions = new Set(user.apiKeyPermissions as string[]);
         const searchPermissions = Array.isArray(requiredPermissions) ? requiredPermissions : [requiredPermissions];
 
         const hasApiKeyPerm = requireAll
@@ -112,8 +111,6 @@ export function requirePermission(
             success: false,
           });
         }
-
-        // console.log(`DEBUG: Checking permissions for user ${userWithRoles.email}. Required: ${JSON.stringify(requiredPermissions)}`);
 
         if (!hasPermission(userWithRoles, requiredPermissions, requireAll)) {
 
