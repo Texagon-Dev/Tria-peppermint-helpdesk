@@ -178,7 +178,7 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
             username: userEmail,
             refreshToken: r.tokens.refresh_token,
             accessToken: r.tokens.access_token,
-            expiresIn: r.tokens.expiry_date,
+            expiresIn: Math.floor((r.tokens.expiry_date || (Date.now() + 3500 * 1000)) / 1000),
             serviceType: "gmail",
           },
         });
