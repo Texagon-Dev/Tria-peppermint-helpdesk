@@ -1,6 +1,7 @@
 import handlebars from "handlebars";
 import { prisma } from "../../../prisma";
 import { createTransportProvider } from "../transport";
+import { removeEmailFooter } from "../utils";
 
 export async function sendTicketCreate(ticket: any) {
   try {
@@ -19,7 +20,7 @@ export async function sendTicketCreate(ticket: any) {
       var replacements = {
         id: ticket.id,
       };
-      var htmlToSend = template(replacements);
+      var htmlToSend = removeEmailFooter(template(replacements));
 
       await transport
         .sendMail({

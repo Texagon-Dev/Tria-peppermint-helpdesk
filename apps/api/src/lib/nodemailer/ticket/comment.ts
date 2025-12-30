@@ -1,6 +1,7 @@
 import handlebars from "handlebars";
 import { prisma } from "../../../prisma";
 import { createTransportProvider } from "../transport";
+import { removeEmailFooter } from "../utils";
 
 export interface CommentEmailOptions {
   comment: string;
@@ -31,7 +32,7 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
       title: title,
       comment: comment,
     };
-    var htmlToSend = template(replacements);
+    var htmlToSend = removeEmailFooter(template(replacements));
 
     // Build subject - use Re: prefix if we have original subject
     const subject = originalSubject

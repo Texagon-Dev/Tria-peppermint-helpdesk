@@ -1,6 +1,7 @@
 import handlebars from "handlebars";
 import { prisma } from "../../../prisma";
 import { createTransportProvider } from "../transport";
+import { removeEmailFooter } from "../utils";
 
 export async function sendTicketStatus(ticket: any) {
   const email = await prisma.email.findFirst();
@@ -19,18 +20,16 @@ export async function sendTicketStatus(ticket: any) {
       title: ticket.title,
       status: ticket.isComplete ? "COMPLETED" : "OUTSTANDING",
     };
-    var htmlToSend = template(replacements);
+    var htmlToSend = removeEmailFooter(template(replacements));
 
     await transport
       .sendMail({
-        from: email?.reply, 
+        from: email?.reply,
         to: ticket.email,
-        subject: `Issue #${ticket.Number} status is now ${
-          ticket.isComplete ? "COMPLETED" : "OUTSTANDING"
-        }`, 
-        text: `Hello there, Issue #${ticket.Number}, now has a status of ${
-          ticket.isComplete ? "COMPLETED" : "OUTSTANDING"
-        }`,
+        subject: `Issue #${ticket.Number} status is now ${ticket.isComplete ? "COMPLETED" : "OUTSTANDING"
+          }`,
+        text: `Hello there, Issue #${ticket.Number}, now has a status of ${ticket.isComplete ? "COMPLETED" : "OUTSTANDING"
+          }`,
         html: htmlToSend,
       })
       .then((info: any) => {
