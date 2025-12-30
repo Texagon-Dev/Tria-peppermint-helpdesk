@@ -30,7 +30,11 @@ export class AuthService {
     // Check if token is still valid (with 5 minute buffer)
     // expiresIn is BigInt from Prisma, so convert to Number for comparison
     const now = Math.floor(Date.now() / 1000);
-    const expiresInNum = expiresIn ? Number(expiresIn) : 0;
+    let expiresInNum = expiresIn ? Number(expiresIn) : 0;
+    // Fix: If expiresIn is in milliseconds (huge number > year 2065 in seconds), convert to seconds
+    if (expiresInNum > 3000000000) {
+      expiresInNum = Math.floor(expiresInNum / 1000);
+    }
     if (accessToken && expiresInNum && now < (expiresInNum - 300)) {
       return accessToken;
     }
