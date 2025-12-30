@@ -1,7 +1,6 @@
 import handlebars from "handlebars";
 import { prisma } from "../../../prisma";
 import { createTransportProvider } from "../transport";
-import { removeEmailFooter } from "../utils";
 
 export async function sendAssignedEmail(email: any) {
   try {
@@ -20,7 +19,7 @@ export async function sendAssignedEmail(email: any) {
       });
 
       var template = handlebars.compile(testhtml?.html);
-      var htmlToSend = removeEmailFooter(template({})); // Pass an empty object as the argument to the template function
+      var htmlToSend = template({}); // Pass an empty object as the argument to the template function
 
       await mail
         .sendMail({
