@@ -13,16 +13,16 @@ export async function commentNotification(issue: any, commenter: any) {
 
     // Get all followers of the ticket, ensuring the creator is not already a follower
     const followers = [
-      ...(issue.following || []),
-      ...(issue.following?.includes(issue.createdBy.id)
+      ...(Array.isArray(issue.following) ? issue.following : []),
+      ...(Array.isArray(issue.following) && issue.following.includes(issue.createdBy?.id)
         ? []
-        : [issue.createdBy.id]),
+        : [issue.createdBy?.id].filter(Boolean)),
     ];
 
     // Create notifications for all followers (except the commenter)
     await prisma.notifications.createMany({
       data: followers
-        .filter((userId: string) => userId !== commenter.id)
+        .filter((userId: string) => userId !== commenter?.id)
         .map((userId: string) => ({
           text,
           userId,

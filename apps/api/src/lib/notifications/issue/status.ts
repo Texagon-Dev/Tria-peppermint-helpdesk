@@ -6,16 +6,14 @@ export async function activeStatusNotification(
   newStatus: string
 ) {
   try {
-    const text = `#${ticket.Number} status changed to ${
-      newStatus ? "Closed" : "Open"
-    } by ${updater.name}`;
+    const text = `#${ticket.Number} status changed to ${newStatus ? "Closed" : "Open"
+      } by ${updater.name}`;
 
-    // Get all followers of the ticket, ensuring the creator is not already a follower
     const followers = [
-      ...(ticket.following || []),
-      ...(ticket.following?.includes(ticket.createdBy.id)
+      ...(Array.isArray(ticket.following) ? ticket.following : []),
+      ...(Array.isArray(ticket.following) && ticket.following.includes(ticket.createdBy?.id)
         ? []
-        : [ticket.createdBy.id]),
+        : [ticket.createdBy?.id].filter(Boolean)),
     ];
 
     // Create notifications for all followers (except the updater)
@@ -41,12 +39,11 @@ export async function statusUpdateNotification(
   try {
     const text = `#${ticket.Number} status changed to ${newStatus} by ${updater.name}`;
 
-    // Get all followers of the ticket, ensuring the creator is not already a follower
     const followers = [
-      ...(ticket.following || []),
-      ...(ticket.following?.includes(ticket.createdBy.id)
+      ...(Array.isArray(ticket.following) ? ticket.following : []),
+      ...(Array.isArray(ticket.following) && ticket.following.includes(ticket.createdBy?.id)
         ? []
-        : [ticket.createdBy.id]),
+        : [ticket.createdBy?.id].filter(Boolean)),
     ];
 
     // Create notifications for all followers (except the updater)
