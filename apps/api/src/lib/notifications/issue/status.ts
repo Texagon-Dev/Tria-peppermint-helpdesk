@@ -1,4 +1,5 @@
 import { prisma } from "../../../prisma";
+import { getTicketFollowers } from "./helpers";
 
 export async function activeStatusNotification(
   ticket: any,
@@ -9,12 +10,7 @@ export async function activeStatusNotification(
     const text = `#${ticket.Number} status changed to ${newStatus ? "Closed" : "Open"
       } by ${updater.name}`;
 
-    const followers = [
-      ...(Array.isArray(ticket.following) ? ticket.following : []),
-      ...(Array.isArray(ticket.following) && ticket.following.includes(ticket.createdBy?.id)
-        ? []
-        : [ticket.createdBy?.id].filter(Boolean)),
-    ];
+    const followers = getTicketFollowers(ticket);
 
     // Create notifications for all followers (except the updater)
     await prisma.notifications.createMany({
@@ -39,12 +35,7 @@ export async function statusUpdateNotification(
   try {
     const text = `#${ticket.Number} status changed to ${newStatus} by ${updater.name}`;
 
-    const followers = [
-      ...(Array.isArray(ticket.following) ? ticket.following : []),
-      ...(Array.isArray(ticket.following) && ticket.following.includes(ticket.createdBy?.id)
-        ? []
-        : [ticket.createdBy?.id].filter(Boolean)),
-    ];
+    const followers = getTicketFollowers(ticket);
 
     // Create notifications for all followers (except the updater)
     await prisma.notifications.createMany({

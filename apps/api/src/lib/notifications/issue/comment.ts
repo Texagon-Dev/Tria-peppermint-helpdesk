@@ -1,4 +1,5 @@
 import { prisma } from "../../../prisma";
+import { getTicketFollowers } from "./helpers";
 
 /**
  * Creates comment notifications for all ticket followers.
@@ -11,13 +12,8 @@ export async function commentNotification(issue: any, commenter: any) {
   try {
     const text = `New comment on #${issue.Number} by ${commenter.name}`;
 
-    // Get all followers of the ticket, ensuring the creator is not already a follower
-    const followers = [
-      ...(Array.isArray(issue.following) ? issue.following : []),
-      ...(Array.isArray(issue.following) && issue.following.includes(issue.createdBy?.id)
-        ? []
-        : [issue.createdBy?.id].filter(Boolean)),
-    ];
+    // Get all followers of the ticket, ensuring the creator is included
+    const followers = getTicketFollowers(issue);
 
     // Create notifications for all followers (except the commenter)
     await prisma.notifications.createMany({
