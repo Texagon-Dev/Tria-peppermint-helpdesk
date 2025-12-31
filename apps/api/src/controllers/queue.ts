@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 import { OAuth2Client } from "google-auth-library";
 import { track } from "../lib/hog";
-import { GMAIL_PENDING_NAME, GMAIL_PENDING_EMAIL } from "../lib/constants";
+import { GMAIL_PENDING_NAME, GMAIL_PENDING_EMAIL, GMAIL_DEFAULT_EXPIRY_OFFSET_SECONDS } from "../lib/constants";
 import { prisma } from "../prisma";
 
 async function tracking(event: string, properties: any) {
@@ -178,7 +178,7 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
             username: userEmail,
             refreshToken: r.tokens.refresh_token,
             accessToken: r.tokens.access_token,
-            expiresIn: Math.floor((r.tokens.expiry_date || (Date.now() + 3500 * 1000)) / 1000),
+            expiresIn: Math.floor((r.tokens.expiry_date || (Date.now() + GMAIL_DEFAULT_EXPIRY_OFFSET_SECONDS * 1000)) / 1000),
             serviceType: "gmail",
           },
         });

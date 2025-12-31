@@ -10,7 +10,7 @@ import axios from "axios";
 const nodemailer = require("nodemailer");
 
 import { track } from "../lib/hog";
-import { GMAIL_PENDING_EMAIL } from "../lib/constants";
+import { GMAIL_PENDING_EMAIL, GMAIL_DEFAULT_EXPIRY_OFFSET_SECONDS } from "../lib/constants";
 import { createTransportProvider } from "../lib/nodemailer/transport";
 import { requirePermission } from "../lib/roles";
 import { checkSession } from "../lib/session";
@@ -423,7 +423,7 @@ export function configRoutes(fastify: FastifyInstance) {
             reply: userEmail,
             refreshToken: r.tokens.refresh_token,
             accessToken: r.tokens.access_token,
-            expiresIn: Math.floor((r.tokens.expiry_date || (Date.now() + 3500 * 1000)) / 1000),
+            expiresIn: Math.floor((r.tokens.expiry_date || (Date.now() + GMAIL_DEFAULT_EXPIRY_OFFSET_SECONDS * 1000)) / 1000),
             serviceType: "gmail",
             active: true,
           },
