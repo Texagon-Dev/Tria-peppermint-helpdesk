@@ -1,7 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../../prisma";
 import { EmailQueue } from "../types/email";
-import { MILLISECONDS_TIMESTAMP_DETECTION_THRESHOLD } from "../constants";
+import { normalizeExpiryToSeconds } from "../constants";
 
 export class AuthService {
   public static generateXOAuth2Token(
@@ -29,13 +29,9 @@ export class AuthService {
     }
 
     // Check if token is still valid (with 5 minute buffer)
-    // expiresIn is BigInt from Prisma, so convert to Number for comparison
     const now = Math.floor(Date.now() / 1000);
-    let expiresInNum = expiresIn ? Number(expiresIn) : 0;
-    // Fix: If expiresIn is in milliseconds (huge number > year 2065 in seconds), convert to seconds
-    if (expiresInNum > MILLISECONDS_TIMESTAMP_DETECTION_THRESHOLD) {
-      expiresInNum = Math.floor(expiresInNum / 1000);
-    }
+    const expiresInNum = expiresIn ? normalizeExpiryToSeconds(expiresIn) : 0;
+
     if (accessToken && expiresInNum && now < (expiresInNum - 300)) {
       return accessToken;
     }
@@ -64,7 +60,7 @@ export class AuthService {
 
       // Calculate expiry time from response or default to 1 hour
       const expiryTimeSeconds = credentials.expiry_date
-        ? Math.floor(credentials.expiry_date / 1000)
+        ? normalizeExpiryToSeconds(credentials.expiry_date)
         : Math.floor(Date.now() / 1000) + 3600;
       const newExpiryDate = BigInt(expiryTimeSeconds);
 

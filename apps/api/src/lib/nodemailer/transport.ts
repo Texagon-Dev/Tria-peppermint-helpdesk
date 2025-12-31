@@ -1,4 +1,5 @@
 import { prisma } from "../../prisma";
+import { normalizeExpiryToSeconds } from "../constants";
 
 const nodemailer = require("nodemailer");
 const { ConfidentialClientApplication } = require("@azure/identity");
@@ -30,7 +31,7 @@ export async function createTransportProvider() {
         clientSecret: clientSecret,
         refreshToken: provider?.refreshToken,
         accessToken: provider?.accessToken,
-        expires: provider?.expiresIn ? Number(provider.expiresIn) * 1000 : undefined,
+        expires: provider?.expiresIn ? normalizeExpiryToSeconds(provider.expiresIn) * 1000 : undefined,
       },
     });
   } else if (provider?.serviceType === "microsoft") {
