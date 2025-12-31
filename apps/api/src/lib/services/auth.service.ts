@@ -1,6 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../../prisma";
 import { EmailQueue } from "../types/email";
+import { MILLISECONDS_TIMESTAMP_DETECTION_THRESHOLD } from "../constants";
 
 export class AuthService {
   public static generateXOAuth2Token(
@@ -32,7 +33,7 @@ export class AuthService {
     const now = Math.floor(Date.now() / 1000);
     let expiresInNum = expiresIn ? Number(expiresIn) : 0;
     // Fix: If expiresIn is in milliseconds (huge number > year 2065 in seconds), convert to seconds
-    if (expiresInNum > 3000000000) {
+    if (expiresInNum > MILLISECONDS_TIMESTAMP_DETECTION_THRESHOLD) {
       expiresInNum = Math.floor(expiresInNum / 1000);
     }
     if (accessToken && expiresInNum && now < (expiresInNum - 300)) {
