@@ -1,4 +1,5 @@
 import { prisma } from "../../prisma";
+import { normalizeExpiryToSeconds } from "../constants";
 
 const nodemailer = require("nodemailer");
 const { ConfidentialClientApplication } = require("@azure/identity");
@@ -11,6 +12,13 @@ export async function createTransportProvider() {
   }
 
   if (provider?.serviceType === "gmail") {
+    const clientId = provider?.clientId || process.env.GMAIL_CLIENT_ID;
+    const clientSecret = provider?.clientSecret || process.env.GMAIL_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      throw new Error("Gmail OAuth credentials (clientId or clientSecret) are missing in both database and environment variables.");
+    }
+
     return nodemailer.createTransport({
       service: "gmail",
       host: "smtp.gmail.com",
@@ -19,11 +27,11 @@ export async function createTransportProvider() {
       auth: {
         type: "OAuth2",
         user: provider?.user,
-        clientId: provider?.clientId,
-        clientSecret: provider?.clientSecret,
+        clientId: clientId,
+        clientSecret: clientSecret,
         refreshToken: provider?.refreshToken,
         accessToken: provider?.accessToken,
-        expiresIn: provider?.expiresIn,
+        expires: provider?.expiresIn ? normalizeExpiryToSeconds(provider.expiresIn) * 1000 : undefined,
       },
     });
   } else if (provider?.serviceType === "microsoft") {

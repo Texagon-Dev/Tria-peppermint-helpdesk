@@ -78,18 +78,6 @@ async function main() {
                     <p>Hello, <br>A new ticket has been assigned to you.</p>
                     <p style="font-size:14px;margin:16px 0;color:#000">
                     Kind regards, 
-  
-                    <table align="center" border="0" cellPadding="0" cellSpacing="0" role="presentation" width="100%">
-                      <tbody>
-                        <tr>
-                          <td>
-                            <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://docs.peppermint.sh" rel="noopener noreferrer">Documentation</a>   |   <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://discord.gg/8XFkbgKmgv" rel="noopener noreferrer">Discord</a> </a>
-                            <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left">This was an automated message sent by peppermint.sh -> An open source helpdesk solution</p>
-                            <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left;margin-bottom:50px">©2022 Peppermint Ticket Management, a Peppermint Labs product.<br />All rights reserved.</p>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
                   </td>
                 </tr>
               </table>
@@ -118,18 +106,6 @@ async function main() {
                     <p>{{comment}}</p>
                     <p style="font-size:14px;margin:16px 0;color:#000">
                     Kind regards, 
-
-                    <table align="center" border="0" cellPadding="0" cellSpacing="0" role="presentation" width="100%">
-                      <tbody>
-                        <tr>
-                          <td>
-                          <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://docs.peppermint.sh" rel="noopener noreferrer">Documentation</a>   |   <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://discord.gg/8XFkbgKmgv" rel="noopener noreferrer">Discord</a> </a>
-                          <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left">This was an automated message sent by peppermint.sh -> An open source helpdesk solution</p>
-                            <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left;margin-bottom:50px">©2022 Peppermint Ticket Management, a Peppermint Labs product.<br />All rights reserved.</p>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
                   </td>
                 </tr>
               </table>
@@ -158,18 +134,6 @@ async function main() {
                     <p>Hello, <br>Your ticket has now been created and logged.</p>
                     <p style="font-size:14px;margin:16px 0;color:#000">
                     Kind regards, 
-
-                    <table align="center" border="0" cellPadding="0" cellSpacing="0" role="presentation" width="100%">
-                      <tbody>
-                        <tr>
-                          <td>
-                          <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://docs.peppermint.sh" rel="noopener noreferrer">Documentation</a>   |   <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://discord.gg/8XFkbgKmgv" rel="noopener noreferrer">Discord</a> </a>
-                          <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left">This was an automated message sent by peppermint.sh -> An open source helpdesk solution</p>
-                            <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left;margin-bottom:50px">©2022 Peppermint Ticket Management, a Peppermint Labs product.<br />All rights reserved.</p>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
                   </td>
                 </tr>
               </table>
@@ -206,18 +170,6 @@ async function main() {
                     <br>
                     Peppermint ticket management
                     </p>
-                    
-                    <table align="center" border="0" cellPadding="0" cellSpacing="0" role="presentation" width="100%">
-                      <tbody>
-                        <tr>
-                          <td>
-                          <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://docs.peppermint.sh" rel="noopener noreferrer">Documentation</a>   |   <a target="_blank" style="color:#b7b7b7;text-decoration:underline" href="https://discord.gg/8XFkbgKmgv" rel="noopener noreferrer">Discord</a> </a>
-                          <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left">This was an automated message sent by peppermint.sh -> An open source helpdesk solution</p>
-                            <p style="font-size:12px;line-height:15px;margin:16px 0;color:#b7b7b7;text-align:left;margin-bottom:50px">©2022 Peppermint Ticket Management, a Peppermint Labs product.<br />All rights reserved.</p>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
                   </td>
                 </tr>
               </table>
