@@ -22,16 +22,6 @@ export const MILLISECONDS_TIMESTAMP_DETECTION_THRESHOLD = 10_000_000_000;
 /**
  * Normalizes OAuth token expiry timestamps to seconds.
  * Handles inconsistent timestamp formats from OAuth providers (milliseconds vs seconds).
- *
- * @param value - The expiry timestamp value (may be in seconds or milliseconds)
- * @returns The expiry timestamp in seconds (Unix epoch)
- *
- * @example
- * // Milliseconds timestamp (year 2025)
- * normalizeExpiryToSeconds(1735641600000) // Returns 1735641600
- *
- * // Seconds timestamp (year 2025)
- * normalizeExpiryToSeconds(1735641600) // Returns 1735641600
  */
 export function normalizeExpiryToSeconds(value: number | bigint): number {
     const numValue = typeof value === 'bigint' ? Number(value) : value;

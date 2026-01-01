@@ -1,6 +1,7 @@
 import handlebars from "handlebars";
 import { prisma } from "../../../prisma";
 import { createTransportProvider } from "../transport";
+import { convertMarkdownToHtmlSync } from "../utils/markdown";
 
 export interface CommentEmailOptions {
   comment: string;
@@ -27,9 +28,10 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
     });
 
     var template = handlebars.compile(testhtml?.html);
+    // Convert markdown to HTML for proper email rendering
     var replacements = {
       title: title,
-      comment: comment,
+      comment: convertMarkdownToHtmlSync(comment),
     };
     var htmlToSend = template(replacements);
 
