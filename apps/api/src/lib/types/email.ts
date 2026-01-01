@@ -9,6 +9,8 @@ export interface EmailConfig {
   };
   xoauth2?: string;
   password?: string;
+  connTimeout?: number;
+  authTimeout?: number;
 }
 
 export type EmailQueue = {

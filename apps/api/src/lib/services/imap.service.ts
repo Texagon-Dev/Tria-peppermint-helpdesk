@@ -83,6 +83,8 @@ export class ImapService {
             validatedAccessToken
           ),
           tlsOptions: { rejectUnauthorized: false, servername: queue.hostname },
+          connTimeout: 60000, // 60 seconds connection timeout
+          authTimeout: 30000, // 30 seconds auth timeout
         };
       }
       case "other":
@@ -93,6 +95,8 @@ export class ImapService {
           port: queue.tls ? 993 : 143,
           tls: queue.tls || false,
           tlsOptions: { rejectUnauthorized: false, servername: queue.hostname },
+          connTimeout: 60000, // 60 seconds connection timeout
+          authTimeout: 30000, // 30 seconds auth timeout
         };
       default:
         throw new Error("Unsupported service type");
@@ -531,34 +535,68 @@ export class ImapService {
   }
 
   /**
-   * Fetch emails from all configured IMAP queues
+   * Helper to wait for a specified duration
    */
-  static async fetchEmails(): Promise<void> {
-    const queues =
-      (await prisma.emailQueue.findMany()) as unknown as EmailQueue[];
-    const today = new Date();
+  private static delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 
-    for (const queue of queues) {
+  /**
+   * Check if an error is retryable (timeout or connection error)
+   */
+  private static isRetryableError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('timeout') ||
+      message.includes('etimedout') ||
+      message.includes('econnreset') ||
+      message.includes('econnrefused') ||
+      message.includes('enetunreach') ||
+      message.includes('ehostunreach')
+    );
+  }
+
+  /**
+   * Connect to IMAP with retry logic
+   */
+  private static async connectWithRetry(
+    queue: EmailQueue,
+    maxRetries: number = 3
+  ): Promise<void> {
+    const backoffDelays = [5000, 10000, 20000]; // 5s, 10s, 20s
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const imapConfig = await this.getImapConfig(queue);
 
         if (queue.serviceType === "other" && !imapConfig.password) {
-          logger.error("IMAP configuration is missing a password");
           throw new Error("IMAP configuration is missing a password");
         }
 
-        // @ts-ignore
-        const imap = new Imap(imapConfig);
+        const today = new Date();
 
         await new Promise((resolve, reject) => {
+          // @ts-ignore
+          const imap = new Imap(imapConfig);
+
+          const cleanup = () => {
+            try { imap.end(); } catch (e) { /* ignore */ }
+          };
+
           imap.once("ready", () => {
             imap.openBox("INBOX", false, (err) => {
               if (err) {
+                cleanup();
                 reject(err);
                 return;
               }
               imap.search(["UNSEEN", ["ON", today]], (err, results) => {
-                if (err) reject(err);
+                if (err) {
+                  cleanup();
+                  reject(err);
+                  return;
+                }
                 if (!results?.length) {
                   imap.end();
                   resolve(null);
@@ -580,7 +618,10 @@ export class ImapService {
                   });
                 });
 
-                fetch.once("error", reject);
+                fetch.once("error", (err) => {
+                  cleanup();
+                  reject(err);
+                });
                 fetch.once("end", () => {
                   imap.end();
                   resolve(null);
@@ -589,13 +630,54 @@ export class ImapService {
             });
           });
 
-          imap.once("error", reject);
+          imap.once("error", (err) => {
+            cleanup();
+            reject(err);
+          });
           imap.once("end", () => {
             resolve(null);
           });
 
           imap.connect();
         });
+
+        // Success - exit the retry loop
+        return;
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        // Check if we should retry
+        if (attempt < maxRetries && this.isRetryableError(lastError)) {
+          const delay = backoffDelays[attempt] || 20000;
+          logger.warn({
+            queueId: queue.id,
+            attempt: attempt + 1,
+            maxRetries,
+            delayMs: delay,
+            errorMessage: lastError.message,
+          }, `IMAP connection failed, retrying in ${delay / 1000}s...`);
+
+          await this.delay(delay);
+          continue;
+        }
+
+        // Non-retryable error or max retries exceeded
+        throw lastError;
+      }
+    }
+  }
+
+  /**
+   * Fetch emails from all configured IMAP queues
+   */
+  static async fetchEmails(): Promise<void> {
+    const queues =
+      (await prisma.emailQueue.findMany()) as unknown as EmailQueue[];
+
+    for (const queue of queues) {
+      try {
+        await this.connectWithRetry(queue, 3);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : undefined;
@@ -605,7 +687,7 @@ export class ImapService {
           queueId: queue.id,
           username: queue.username,
           serviceType: queue.serviceType
-        }, "Error processing queue");
+        }, "Error processing queue (all retries exhausted)");
       }
     }
   }
