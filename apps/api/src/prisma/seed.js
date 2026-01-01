@@ -55,6 +55,52 @@ async function main() {
     console.log("No need to seed, already seeded");
   }
 
+  // Always update the ticket_comment template to ensure it uses {{{comment}}} for HTML rendering
+  const ticketCommentTemplate = await prisma.emailTemplate.findFirst({
+    where: { type: "ticket_comment" },
+  });
+
+  if (ticketCommentTemplate) {
+    // Check if template still uses {{comment}} (double braces - escapes HTML)
+    if (ticketCommentTemplate.html.includes("{{comment}}") && !ticketCommentTemplate.html.includes("{{{comment}}}")) {
+      console.log("Updating ticket_comment template to use triple braces for HTML rendering...");
+      await prisma.emailTemplate.update({
+        where: { id: ticketCommentTemplate.id },
+        data: {
+          html: ` <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+          <html lang="en">
+
+            <head>
+              <meta http-equiv="Content-Type" content="text/html charset=UTF-8" />
+            </head>
+            <div id="" style="display:none;overflow:hidden;line-height:1px;opacity:0;max-height:0;max-width:0">Ticket Update<div></div>
+            </div>
+
+            <body style="background-color:#ffffff;margin:0 auto;font-family:-apple-system, BlinkMacSystemFont, &#x27;Segoe UI&#x27;, &#x27;Roboto&#x27;, &#x27;Oxygen&#x27;, &#x27;Ubuntu&#x27;, &#x27;Cantarell&#x27;, &#x27;Fira Sans&#x27;, &#x27;Droid Sans&#x27;, &#x27;Helvetica Neue&#x27;, sans-serif">
+              <table align="center" role="presentation" cellSpacing="0" cellPadding="0" border="0" width="100%" style="max-width:600px;margin:0 auto">
+                <tr style="width:100%">
+                  <td>
+                    <table style="margin-top:8px" align="center" border="0" cellPadding="0" cellSpacing="0" role="presentation" width="100%">
+                    </table>
+                    <h1 style="color:#1d1c1d;font-size:16px;font-weight:700;margin:10px 0;padding:0;line-height:42px">Ticket Update for: {{title}}</h1>
+                    <div style="font-size:14px;line-height:1.6;margin:4px 0;color:#333">
+                    {{{comment}}}
+                    </div>
+                    <p style="font-size:14px;margin:16px 0;color:#000">
+                    Kind regards, 
+                  </td>
+                </tr>
+              </table>
+            </body>
+          </html>`,
+        },
+      });
+      console.log("ticket_comment template updated successfully!");
+    } else {
+      console.log("ticket_comment template already uses triple braces, no update needed.");
+    }
+  }
+
   if (templates.length === 0) {
     await prisma.emailTemplate.createMany({
       data: [
