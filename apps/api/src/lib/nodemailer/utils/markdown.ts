@@ -107,7 +107,7 @@ function manualMarkdownConvert(text: string): string {
 
     // Wrap consecutive <li> items
     html = html.replace(
-        /(<li[^>]*>.*?<\/li>(\s*<li[^>]*>.*?<\/li>)*)/gs,
+        /(<li[^>]*>[\s\S]*?<\/li>(\s*<li[^>]*>[\s\S]*?<\/li>)*)/g,
         '<ul style="margin:10px 0;padding-left:20px;">$1</ul>'
     );
 
