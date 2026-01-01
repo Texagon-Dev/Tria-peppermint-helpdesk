@@ -63,7 +63,8 @@
     "prisma": "5.6.0",
     "samlify": "^2.8.11",
     "simple-oauth2": "^5.1.0",
-    "xml-encryption": "^3.0.2"
+    "xml-encryption": "^3.0.2",
+    "marked": "^17.0.1"
   },
   "prisma": {
     "schema": "./src/prisma/schema.prisma",
