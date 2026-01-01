@@ -574,8 +574,6 @@ export class ImapService {
           throw new Error("IMAP configuration is missing a password");
         }
 
-        const today = new Date();
-
         await new Promise((resolve, reject) => {
           // @ts-ignore
           const imap = new Imap(imapConfig);
@@ -591,7 +589,7 @@ export class ImapService {
                 reject(err);
                 return;
               }
-              imap.search(["UNSEEN", ["ON", today]], (err, results) => {
+              imap.search(["UNSEEN"], (err, results) => {
                 if (err) {
                   cleanup();
                   reject(err);
