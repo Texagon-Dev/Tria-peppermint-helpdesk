@@ -1,60 +1,10 @@
-import { marked, Renderer } from "marked";
+import { marked } from "marked";
 
-/**
- * Create a custom renderer with email-safe inline styles.
- * This is more robust than regex post-processing as it handles
- * all edge cases during the rendering phase.
- */
-function createEmailRenderer(): Renderer {
-    const renderer = new Renderer();
-
-    // Override link rendering to add target="_blank" and rel="noopener"
-    renderer.link = ({ href, title, text }): string => {
-        const titleAttr = title ? ` title="${title}"` : "";
-        return `<a href="${href}" target="_blank" rel="noopener"${titleAttr} style="color:#0066cc;">${text}</a>`;
-    };
-
-    // Override paragraph with inline styles
-    renderer.paragraph = ({ text }): string => {
-        return `<p style="margin:10px 0;">${text}</p>\n`;
-    };
-
-    // Override strong (bold) with inline styles
-    renderer.strong = ({ text }): string => {
-        return `<strong style="font-weight:bold;">${text}</strong>`;
-    };
-
-    // Override em (italic) with inline styles
-    renderer.em = ({ text }): string => {
-        return `<em style="font-style:italic;">${text}</em>`;
-    };
-
-    // Override list with inline styles
-    renderer.list = ({ ordered, items }): string => {
-        const tag = ordered ? "ol" : "ul";
-        const body = items.map(item => renderer.listitem(item)).join("");
-        return `<${tag} style="margin:10px 0;padding-left:20px;">${body}</${tag}>\n`;
-    };
-
-    // Override list item with inline styles
-    renderer.listitem = ({ text }): string => {
-        return `<li style="margin:5px 0;">${text}</li>\n`;
-    };
-
-    return renderer;
-}
-
-/**
- * Configure marked with email-safe settings and custom renderer.
- */
-function getConfiguredMarked() {
-    marked.setOptions({
-        breaks: true, // Convert line breaks to <br>
-        gfm: true, // GitHub Flavored Markdown
-    });
-    marked.use({ renderer: createEmailRenderer() });
-    return marked;
-}
+// Configure marked once at module initialization
+marked.setOptions({
+    breaks: true, // Convert line breaks to <br>
+    gfm: true, // GitHub Flavored Markdown
+});
 
 /**
  * Convert markdown text to email-safe HTML.
@@ -72,22 +22,21 @@ export async function convertMarkdownToHtml(text: string): Promise<string> {
     }
 
     try {
-        const configuredMarked = getConfiguredMarked();
-        return await configuredMarked.parse(text);
+        // Convert markdown to HTML
+        let html = await marked.parse(text);
+
+        // Post-process for email compatibility
+        html = addEmailStyles(html);
+
+        return html;
     } catch (error) {
         console.error("Error converting markdown to HTML:", error);
-        // Fallback: return original text with basic HTML escaping and line breaks
-        return text
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/\n/g, "<br>");
+        return escapeAndFormat(text);
     }
 }
 
 /**
  * Synchronous version for simpler use cases.
- * Uses marked.parse() which is synchronous when no async extensions are used.
  */
 export function convertMarkdownToHtmlSync(text: string): string {
     if (!text || typeof text !== "string") {
@@ -95,17 +44,91 @@ export function convertMarkdownToHtmlSync(text: string): string {
     }
 
     try {
-        const configuredMarked = getConfiguredMarked();
-        // marked.parse() is synchronous by default in marked v17
-        // It only returns a Promise when async extensions are enabled
-        return configuredMarked.parse(text) as string;
+        // marked.parse() is synchronous by default when no async extensions are used
+        const result = marked.parse(text);
+
+        // Handle both sync and async return types
+        if (typeof result === "string") {
+            return addEmailStyles(result);
+        }
+
+        // If we got a Promise unexpectedly, fall back to manual conversion
+        console.warn("marked.parse returned a Promise unexpectedly, using fallback");
+        return manualMarkdownConvert(text);
     } catch (error) {
         console.error("Error converting markdown to HTML:", error);
-        // Fallback: return original text with basic HTML escaping and line breaks
-        return text
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/\n/g, "<br>");
+        return escapeAndFormat(text);
     }
+}
+
+/**
+ * Add inline styles for email client compatibility.
+ * Email clients often strip external CSS, so we need inline styles.
+ */
+function addEmailStyles(html: string): string {
+    return html
+        // Ensure links open in new tab (for webmail clients)
+        .replace(/<a href="/g, '<a target="_blank" rel="noopener" href="')
+        // Add inline styles for better email rendering
+        .replace(/<strong>/g, '<strong style="font-weight:bold;">')
+        .replace(/<em>/g, '<em style="font-style:italic;">')
+        .replace(/<ul>/g, '<ul style="margin:10px 0;padding-left:20px;">')
+        .replace(/<ol>/g, '<ol style="margin:10px 0;padding-left:20px;">')
+        .replace(/<li>/g, '<li style="margin:5px 0;">')
+        .replace(/<p>/g, '<p style="margin:10px 0;">');
+}
+
+/**
+ * Manual markdown conversion as fallback.
+ * Used when marked library fails or returns unexpected types.
+ */
+function manualMarkdownConvert(text: string): string {
+    let html = text;
+
+    // Bold: **text** or __text__
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="font-weight:bold;">$1</strong>');
+    html = html.replace(/__([^_]+)__/g, '<strong style="font-weight:bold;">$1</strong>');
+
+    // Italic: *text* or _text_ (careful not to match bold)
+    html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em style="font-style:italic;">$1</em>');
+    html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em style="font-style:italic;">$1</em>');
+
+    // Links: [text](url)
+    html = html.replace(
+        /\[([^\]]+)\]\(([^)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener" style="color:#0066cc;">$1</a>'
+    );
+
+    // Numbered lists: lines starting with "1. ", "2. ", etc.
+    html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<li style="margin:5px 0;">$2</li>');
+
+    // Bullet lists: lines starting with "- " or "* "
+    html = html.replace(/^[-*]\s+(.+)$/gm, '<li style="margin:5px 0;">$1</li>');
+
+    // Wrap consecutive <li> items
+    html = html.replace(
+        /(<li[^>]*>.*?<\/li>(\s*<li[^>]*>.*?<\/li>)*)/gs,
+        '<ul style="margin:10px 0;padding-left:20px;">$1</ul>'
+    );
+
+    // Line breaks
+    html = html.replace(/\n/g, "<br>");
+
+    // Clean up
+    html = html.replace(/<br><br>/g, "<br>");
+    html = html.replace(/<\/li><br>/g, "</li>");
+    html = html.replace(/<\/ul><br>/g, "</ul>");
+
+    return html;
+}
+
+/**
+ * Fallback: escape HTML and convert line breaks.
+ */
+function escapeAndFormat(text: string): string {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br>");
 }
