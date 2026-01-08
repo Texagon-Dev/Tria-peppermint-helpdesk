@@ -169,6 +169,40 @@ export function vendorRoutes(fastify: FastifyInstance) {
         }
     );
 
+    // Bulk delete vendors (admin only)
+    fastify.delete(
+        "/api/v1/vendors/bulk-delete",
+        {
+            preHandler: async (request, reply) => {
+                const user = await checkSession(request);
+                if (!user?.isAdmin) {
+                    return reply.status(403).send({ success: false, error: "Admin access required" });
+                }
+            },
+        },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const { ids }: any = request.body;
+
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return reply.status(400).send({ success: false, error: "IDs array is required and cannot be empty" });
+            }
+
+            try {
+                await prisma.vendor.deleteMany({
+                    where: {
+                        id: {
+                            in: ids
+                        }
+                    },
+                });
+
+                reply.send({ success: true });
+            } catch (error: any) {
+                throw error;
+            }
+        }
+    );
+
     // Get vendors by category (for AI agent)
     fastify.get(
         "/api/v1/vendors/category/:category",
