@@ -172,7 +172,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
     );
 
     // Bulk delete vendors (admin only)
-    fastify.delete(
+    fastify.post(
         "/api/v1/vendors/bulk-delete",
         {
             preHandler: async (request, reply) => {
