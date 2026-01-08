@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import "dotenv/config";
 import Fastify from "fastify";
-import multer from "fastify-multer";
+import multipart from "@fastify/multipart";
 import fs from "fs";
 
 import { exec } from "child_process";
@@ -38,8 +38,8 @@ server.register(cors as any, {
   allowedHeaders: ["Content-Type", "Authorization", "Accept", "Cookie"],
 });
 
-// Register multer for file uploads (use type assertion to fix compatibility)
-server.register(multer.contentParser as any);
+// Register multipart for file uploads
+server.register(multipart as any);
 
 registerRoutes(server);
 

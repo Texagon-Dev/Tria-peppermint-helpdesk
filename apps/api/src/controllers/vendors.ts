@@ -1,8 +1,8 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { checkSession } from "../lib/session";
 import { prisma } from "../prisma";
-import multer from "fastify-multer";
 import { parse } from "csv-parse/sync";
+import type { MultipartFile } from "@fastify/multipart";
 
 export function vendorRoutes(fastify: FastifyInstance) {
     // Create vendor (admin only)
@@ -224,29 +224,27 @@ export function vendorRoutes(fastify: FastifyInstance) {
     );
 
     // Upload vendors from CSV (admin only)
-    const upload = multer({ storage: multer.memoryStorage() });
-
     fastify.post(
         "/api/v1/vendors/upload",
         {
-            preHandler: [
-                async (request, reply) => {
-                    const user = await checkSession(request);
-                    if (!user?.isAdmin) {
-                        return reply.status(403).send({ success: false, error: "Admin access required" });
-                    }
-                },
-                upload.single("file") as any
-            ]
+            preHandler: async (request, reply) => {
+                const user = await checkSession(request);
+                if (!user?.isAdmin) {
+                    return reply.status(403).send({ success: false, error: "Admin access required" });
+                }
+            }
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
-            const file = (request as any).file;
-            if (!file) {
+            const data = await (request as any).file();
+            if (!data) {
                 return reply.status(400).send({ success: false, error: "No file uploaded" });
             }
 
             try {
-                const fileContent = file.buffer.toString("utf-8");
+                // Get the file content as a buffer
+                const fileBuffer = await data.toBuffer();
+                const fileContent = fileBuffer.toString("utf-8");
+
                 const records = parse(fileContent, {
                     columns: true,
                     skip_empty_lines: true,

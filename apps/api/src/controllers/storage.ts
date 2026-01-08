@@ -1,28 +1,70 @@
 //@ts-nocheck
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import multer from "fastify-multer";
 import { prisma } from "../prisma";
-const upload = multer({ dest: "uploads/" });
+import fs from "fs";
+import util from "util";
+import { pipeline } from "stream";
+import path from "path";
+import { randomUUID } from "crypto";
+
+const pump = util.promisify(pipeline);
 
 export function objectStoreRoutes(fastify: FastifyInstance) {
   //
   fastify.post(
     "/api/v1/storage/ticket/:id/upload/single",
-    { preHandler: upload.single("file") },
-
     async (request: FastifyRequest, reply: FastifyReply) => {
-      console.log(request.file);
-      console.log(request.body);
+      const parts = request.parts();
+
+      let uploadPath = "";
+      let originalName = "";
+      let mimeType = "";
+      let size = 0;
+      let encoding = "";
+      let userId = "";
+
+      // Ensure uploads directory exists
+      const uploadDir = "uploads/";
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      for await (const part of parts) {
+        if (part.file) {
+          // It's a file
+          originalName = part.filename;
+          mimeType = part.mimetype;
+          encoding = part.encoding;
+
+          const filename = randomUUID() + "-" + part.filename; // Generate safe filename
+          uploadPath = path.join(uploadDir, filename);
+
+          await pump(part.file, fs.createWriteStream(uploadPath));
+
+          // Get file stats for size
+          const stats = fs.statSync(uploadPath);
+          size = stats.size;
+        } else {
+          // It's a field
+          if (part.fieldname === 'user') {
+            userId = part.value as string;
+          }
+        }
+      }
+
+      if (!uploadPath) {
+        return reply.status(400).send({ success: false, error: "No file uploaded" });
+      }
 
       const uploadedFile = await prisma.ticketFile.create({
         data: {
-          ticketId: request.params.id,
-          filename: request.file.originalname,
-          path: request.file.path,
-          mime: request.file.mimetype,
-          size: request.file.size,
-          encoding: request.file.encoding,
-          userId: request.body.user,
+          ticketId: (request.params as any).id,
+          filename: originalName,
+          path: uploadPath,
+          mime: mimeType,
+          size: size,
+          encoding: encoding,
+          userId: userId,
         },
       });
 
