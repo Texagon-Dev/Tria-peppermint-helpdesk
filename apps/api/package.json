@@ -39,9 +39,11 @@
     "@fastify/swagger": "^9.2.0",
     "@fastify/swagger-ui": "^5.1.0",
     "@prisma/client": "5.6.0",
+    "@types/csv-parse": "^1.1.12",
     "add": "^2.0.6",
     "axios": "^1.5.0",
     "bcrypt": "^5.0.1",
+    "csv-parse": "^6.1.0",
     "dotenv": "^16.0.0",
     "email-reply-parser": "^1.8.1",
     "fastify": "5.1",
@@ -56,6 +58,7 @@
     "jsonwebtoken": "9.0.2",
     "lru-cache": "^11.0.1",
     "mailparser": "^3.6.5",
+    "marked": "^17.0.1",
     "nodemailer": "^6.9.7",
     "openid-client": "^5.7.0",
     "pino": "^9.5.0",
@@ -63,8 +66,7 @@
     "prisma": "5.6.0",
     "samlify": "^2.8.11",
     "simple-oauth2": "^5.1.0",
-    "xml-encryption": "^3.0.2",
-    "marked": "^17.0.1"
+    "xml-encryption": "^3.0.2"
   },
   "prisma": {
     "schema": "./src/prisma/schema.prisma",

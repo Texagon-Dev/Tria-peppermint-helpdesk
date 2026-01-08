@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { checkSession } from "../lib/session";
 import { prisma } from "../prisma";
+import multer from "fastify-multer";
+import { parse } from "csv-parse/sync";
 
 export function vendorRoutes(fastify: FastifyInstance) {
     // Create vendor (admin only)
@@ -218,6 +220,102 @@ export function vendorRoutes(fastify: FastifyInstance) {
             });
 
             reply.send({ success: true, vendors });
+        }
+    );
+
+    // Upload vendors from CSV (admin only)
+    const upload = multer({ storage: multer.memoryStorage() });
+
+    fastify.post(
+        "/api/v1/vendors/upload",
+        {
+            preHandler: [
+                async (request, reply) => {
+                    const user = await checkSession(request);
+                    if (!user?.isAdmin) {
+                        return reply.status(403).send({ success: false, error: "Admin access required" });
+                    }
+                },
+                upload.single("file") as any
+            ]
+        },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const file = (request as any).file;
+            if (!file) {
+                return reply.status(400).send({ success: false, error: "No file uploaded" });
+            }
+
+            try {
+                const fileContent = file.buffer.toString("utf-8");
+                const records = parse(fileContent, {
+                    columns: true,
+                    skip_empty_lines: true,
+                    trim: true
+                }) as Record<string, string>[];
+
+                if (records.length === 0) {
+                    return reply.status(400).send({ success: false, error: "CSV file is empty" });
+                }
+
+                // Basic validation of header structure based on first record
+                const requiredColumns = ["name", "email", "category", "description"];
+                const firstRecord = records[0];
+                const missingColumns = requiredColumns.filter(col => !(col in firstRecord));
+
+                if (missingColumns.length > 0) {
+                    return reply.status(400).send({
+                        success: false,
+                        error: `Missing required columns: ${missingColumns.join(", ")}`
+                    });
+                }
+
+                let createdCount = 0;
+                let errorCount = 0;
+                const errors: any[] = [];
+
+                for (const record of records) {
+                    try {
+                        const { name, email, category, description } = record;
+
+                        // Validate required fields for this record
+                        if (!name || !email || !category || !description) {
+                            errorCount++;
+                            errors.push({ email, error: "Missing required fields" });
+                            continue;
+                        }
+
+                        // Upsert or Create - using create to catch duplicates simpler for now, 
+                        // or upsert to update existing? User just said "upload into the db".
+                        // Existing create logic throws if email exists. Let's try to create, and if it fails, log it.
+                        await prisma.vendor.create({
+                            data: {
+                                name,
+                                email,
+                                category,
+                                description,
+                                active: true
+                            }
+                        });
+                        createdCount++;
+                    } catch (err: any) {
+                        errorCount++;
+                        if (err.code === 'P2002') {
+                            errors.push({ email: record.email, error: "Vendor with this email already exists" });
+                        } else {
+                            errors.push({ email: record.email, error: err.message });
+                        }
+                    }
+                }
+
+                reply.send({
+                    success: true,
+                    message: `Processed ${records.length} vendors. Created: ${createdCount}, Failed: ${errorCount}`,
+                    errors: errorCount > 0 ? errors : undefined
+                });
+
+            } catch (err: any) {
+                return reply.status(400).send({ success: false, error: `Failed to parse CSV: ${err.message}` });
+            }
         }
     );
 }
