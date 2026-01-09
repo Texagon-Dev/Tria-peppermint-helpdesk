@@ -39,7 +39,11 @@ server.register(cors as any, {
 });
 
 // Register multipart for file uploads
-server.register(multipart as any);
+server.register(multipart as any, {
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+});
 
 registerRoutes(server);
 
