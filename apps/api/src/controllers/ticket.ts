@@ -659,7 +659,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
       preHandler: requirePermission(["issue::comment"]),
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { text, id, public: public_comment }: any = request.body;
+      const { text, id, public: public_comment, senderRole }: any = request.body;
 
       const user = await checkSession(request);
 
@@ -669,6 +669,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
           public: public_comment,
           ticketId: id,
           userId: user!.id,
+          senderRole: senderRole || 'agent', // Default to 'agent' for logged-in users
         },
       });
 

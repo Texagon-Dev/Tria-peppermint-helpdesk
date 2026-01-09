@@ -276,7 +276,41 @@ export class ImapService {
   }
 
   /**
+   * Check if sender email is a registered vendor
+   */
+  private static async findVendorByEmail(email: string): Promise<any | null> {
+    return prisma.vendor.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        active: true
+      },
+    });
+  }
+
+  /**
+   * Extract [REQ-xxx] reference from subject line
+   * Format: [REQ-abc12345] where abc12345 is first 8 chars of ticket ID
+   */
+  private static extractRequestReference(subject: string): string | null {
+    const match = subject.match(/\[REQ-([a-zA-Z0-9]+)\]/i);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Find ticket by REQ reference (first 8+ chars of ticket ID)
+   */
+  private static async findTicketByReference(ref: string): Promise<Ticket | null> {
+    return prisma.ticket.findFirst({
+      where: {
+        id: { startsWith: ref, mode: 'insensitive' },
+        isComplete: false,
+      },
+    });
+  }
+
+  /**
    * Triple-Layer Matching Engine
+
    * Attempts to find an existing ticket for the incoming email
    */
   private static async findMatchingTicket(
@@ -328,7 +362,60 @@ export class ImapService {
     const inReplyToValue = safeHeaderValue(headers.get("in-reply-to"));
     const normalizedInReplyTo = normalizeMessageId(inReplyToValue);
 
-    // Try to find an existing ticket using triple-layer matching
+    // VENDOR DETECTION: Check if sender is a registered vendor
+    const vendor = await this.findVendorByEmail(senderEmail);
+
+    if (vendor) {
+      // This is a vendor email - try to match via [REQ-xxx] in subject
+      const reqReference = this.extractRequestReference(emailSubject);
+
+      if (reqReference) {
+        const ticket = await this.findTicketByReference(reqReference);
+
+        if (ticket) {
+          logger.info(
+            { ticketId: ticket.id, vendorName: vendor.name, reqRef: reqReference },
+            "Vendor email matched via [REQ-xxx] reference"
+          );
+
+          // Append vendor comment
+          await this.appendCommentToTicket(
+            ticket,
+            senderEmail,
+            senderName,
+            text || "No Body",
+            normalizedMessageId,
+            normalizedInReplyTo,
+            'vendor' // SenderRole for vendor
+          );
+
+          // Update ticket's externalIds
+          if (normalizedMessageId) {
+            const updatedExternalIds = [
+              ...new Set([...ticket.externalIds, normalizedMessageId]),
+            ];
+            await prisma.ticket.update({
+              where: { id: ticket.id },
+              data: { externalIds: updatedExternalIds },
+            });
+          }
+
+          return; // Done processing vendor email
+        } else {
+          logger.warn(
+            { reqRef: reqReference, vendorEmail: senderEmail },
+            "Vendor email has [REQ-xxx] but no matching ticket found - falling back to normal flow"
+          );
+        }
+      } else {
+        logger.info(
+          { vendorEmail: senderEmail },
+          "Vendor email without [REQ-xxx] tag - treating as normal customer email"
+        );
+      }
+    }
+
+    // Try to find an existing ticket using triple-layer matching (for customers or fallback for vendors)
     const matchedTicket = await this.findMatchingTicket(
       headers,
       senderEmail,
@@ -485,7 +572,8 @@ export class ImapService {
     senderName: string,
     textContent: string,
     messageId: string | null,
-    inReplyTo: string | null
+    inReplyTo: string | null,
+    senderRole: 'customer' | 'vendor' | 'ai' | 'agent' = 'customer'
   ): Promise<void> {
     const replyText = getReplyText({ text: textContent });
 
@@ -499,6 +587,7 @@ export class ImapService {
         public: true,
         messageId: messageId,
         inReplyTo: inReplyTo,
+        senderRole: senderRole,
       },
     });
 

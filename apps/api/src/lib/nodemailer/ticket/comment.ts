@@ -11,6 +11,7 @@ export interface CommentEmailOptions {
   originalSubject?: string;
   inReplyTo?: string;
   references?: string[];
+  isVendorEmail?: boolean;  // If true, add [REQ-xxx] to subject
 }
 
 export async function sendComment(options: CommentEmailOptions): Promise<string | null> {
@@ -35,10 +36,11 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
     };
     var htmlToSend = template(replacements);
 
-    // Build subject - use Re: prefix if we have original subject
+    // Build subject with optional REQ reference for vendors
+    const refTag = options.isVendorEmail ? `[REQ-${ticketId.slice(0, 8)}] ` : '';
     const subject = originalSubject
-      ? `Re: ${originalSubject.replace(/^(Re:\s*)+/i, '')}` // Remove existing Re: prefixes
-      : `New comment on Issue #${title} ref: #${ticketId}`;
+      ? `${refTag}Re: ${originalSubject.replace(/^(Re:\s*)+/i, '')}` // Remove existing Re: prefixes
+      : `${refTag}New comment on Issue #${title} ref: #${ticketId}`;
 
     // Build headers for email threading
     const headers: Record<string, string> = {

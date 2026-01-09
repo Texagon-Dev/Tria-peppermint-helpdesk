@@ -226,6 +226,31 @@ export function vendorRoutes(fastify: FastifyInstance) {
         }
     );
 
+    // Lookup vendor by email (for IMAP service and AI agent)
+    interface IEmailParams {
+        email: string;
+    }
+
+    fastify.get<{ Params: IEmailParams }>(
+        "/api/v1/vendor/lookup/:email",
+        async (request, reply) => {
+            const email = decodeURIComponent(request.params.email);
+
+            const vendor = await prisma.vendor.findFirst({
+                where: {
+                    email: { equals: email, mode: 'insensitive' },
+                    active: true
+                },
+            });
+
+            reply.send({
+                success: true,
+                isVendor: !!vendor,
+                vendor: vendor || null
+            });
+        }
+    );
+
     // Upload vendors from CSV (admin only)
     fastify.post(
         "/api/v1/vendors/upload",

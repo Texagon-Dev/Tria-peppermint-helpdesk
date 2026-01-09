@@ -194,6 +194,9 @@ model Comment {
   messageId String?  @unique // The unique Message-ID of this email/reply
   inReplyTo String?  // The Message-ID this comment is responding to
 
+  // Sender identification for conversation context
+  senderRole SenderRole @default(customer)
+
   userId   String?
   user     User?   @relation(fields: [userId], references: [id])
   ticketId String
@@ -434,6 +437,13 @@ model emailTemplate {
 
   html String
   type Template
+}
+
+enum SenderRole {
+  customer
+  vendor
+  ai
+  agent
 }
 
 enum Hook {
