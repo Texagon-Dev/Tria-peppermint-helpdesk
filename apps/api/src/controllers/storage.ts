@@ -1,27 +1,35 @@
-//@ts-nocheck
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import "@fastify/multipart"; // Ensure declaration merging happens
 import { prisma } from "../prisma";
 import fs from "fs";
 import util from "util";
 import { pipeline } from "stream";
 import path from "path";
 import { randomUUID } from "crypto";
+import { checkSession } from "../lib/session";
 
 const pump = util.promisify(pipeline);
 
 export function objectStoreRoutes(fastify: FastifyInstance) {
-  //
   fastify.post(
     "/api/v1/storage/ticket/:id/upload/single",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const parts = request.parts();
+    async (
+      request: FastifyRequest<{ Params: { id: string } }>,
+      reply: FastifyReply
+    ) => {
+      const user = await checkSession(request);
+      if (!user) {
+        return reply.status(401).send({ success: false, error: "Unauthorized" });
+      }
+
+      const parts = (request as any).parts();
 
       let uploadPath = "";
       let originalName = "";
       let mimeType = "";
       let size = 0;
       let encoding = "";
-      let userId = "";
+      const userId = user.id;
 
       // Ensure uploads directory exists
       const uploadDir = "uploads/";
@@ -36,7 +44,9 @@ export function objectStoreRoutes(fastify: FastifyInstance) {
           mimeType = part.mimetype;
           encoding = part.encoding;
 
-          const filename = randomUUID() + "-" + part.filename; // Generate safe filename
+          // Sanitize filename
+          const safeOriginal = path.basename(part.filename).replace(/[/\\]/g, "_");
+          const filename = `${randomUUID()}-${safeOriginal}`;
           uploadPath = path.join(uploadDir, filename);
 
           await pump(part.file, fs.createWriteStream(uploadPath));
@@ -44,11 +54,6 @@ export function objectStoreRoutes(fastify: FastifyInstance) {
           // Get file stats for size
           const stats = fs.statSync(uploadPath);
           size = stats.size;
-        } else {
-          // It's a field
-          if (part.fieldname === 'user') {
-            userId = part.value as string;
-          }
         }
       }
 
@@ -58,7 +63,7 @@ export function objectStoreRoutes(fastify: FastifyInstance) {
 
       const uploadedFile = await prisma.ticketFile.create({
         data: {
-          ticketId: (request.params as any).id,
+          ticketId: request.params.id,
           filename: originalName,
           path: uploadPath,
           mime: mimeType,
@@ -82,3 +87,4 @@ export function objectStoreRoutes(fastify: FastifyInstance) {
 
   // Download an attachment
 }
+
