@@ -74,3 +74,10 @@ export async function checkSession(request: FastifyRequest) {
   }
 }
 
+export async function requireAdmin(request: FastifyRequest, reply: any) {
+  const user = await checkSession(request);
+  if (!user?.isAdmin) {
+    return reply.status(403).send({ success: false, error: "Admin access required" });
+  }
+}
+

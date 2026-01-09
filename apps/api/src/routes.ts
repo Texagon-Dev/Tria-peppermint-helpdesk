@@ -12,6 +12,7 @@ import { ticketRoutes } from "./controllers/ticket";
 import { timeTrackingRoutes } from "./controllers/time";
 import { userRoutes } from "./controllers/users";
 import { webhookRoutes } from "./controllers/webhooks";
+import { vendorRoutes } from "./controllers/vendors";
 
 
 export function registerRoutes(fastify: FastifyInstance) {
@@ -28,5 +29,6 @@ export function registerRoutes(fastify: FastifyInstance) {
   timeTrackingRoutes(fastify);
   objectStoreRoutes(fastify);
   roleRoutes(fastify);
-
+  vendorRoutes(fastify);
 }
+
