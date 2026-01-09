@@ -8,15 +8,44 @@ import type { MultipartFile } from "@fastify/multipart";
 
 const pump = util.promisify(pipeline);
 
+// Request type interfaces
+interface ICreateVendorBody {
+    name: string;
+    email: string;
+    category: string;
+    description: string;
+}
+
+interface IUpdateVendorBody {
+    id: string;
+    name?: string;
+    email?: string;
+    category?: string;
+    description?: string;
+    active?: boolean;
+}
+
+interface IBulkDeleteBody {
+    ids: string[];
+}
+
+interface IVendorIdParams {
+    id: string;
+}
+
+interface ICategoryParams {
+    category: string;
+}
+
 export function vendorRoutes(fastify: FastifyInstance) {
     // Create vendor (admin only)
-    fastify.post(
+    fastify.post<{ Body: ICreateVendorBody }>(
         "/api/v1/vendor/create",
         {
             preHandler: requireAdmin,
         },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const { name, email, category, description }: any = request.body;
+        async (request, reply) => {
+            const { name, email, category, description } = request.body;
 
             // Validate required fields
             if (!name || !email || !category || !description) {
@@ -50,13 +79,13 @@ export function vendorRoutes(fastify: FastifyInstance) {
     );
 
     // Update vendor (admin only)
-    fastify.post(
+    fastify.post<{ Body: IUpdateVendorBody }>(
         "/api/v1/vendor/update",
         {
             preHandler: requireAdmin,
         },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const { id, name, email, category, description, active }: any = request.body;
+        async (request, reply) => {
+            const { id, name, email, category, description, active } = request.body;
 
             if (!id) {
                 return reply.status(400).send({ success: false, error: "Vendor ID is required" });
@@ -106,13 +135,13 @@ export function vendorRoutes(fastify: FastifyInstance) {
     );
 
     // Get single vendor (admin only)
-    fastify.get(
+    fastify.get<{ Params: IVendorIdParams }>(
         "/api/v1/vendor/:id",
         {
             preHandler: requireAdmin,
         },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const { id }: any = request.params;
+        async (request, reply) => {
+            const { id } = request.params;
 
             const vendor = await prisma.vendor.findUnique({
                 where: { id },
@@ -127,13 +156,13 @@ export function vendorRoutes(fastify: FastifyInstance) {
     );
 
     // Delete vendor (admin only)
-    fastify.delete(
+    fastify.delete<{ Params: IVendorIdParams }>(
         "/api/v1/vendors/:id/delete",
         {
             preHandler: requireAdmin,
         },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const { id }: any = request.params;
+        async (request, reply) => {
+            const { id } = request.params;
 
             try {
                 await prisma.vendor.delete({
@@ -151,13 +180,13 @@ export function vendorRoutes(fastify: FastifyInstance) {
     );
 
     // Bulk delete vendors (admin only)
-    fastify.post(
+    fastify.post<{ Body: IBulkDeleteBody }>(
         "/api/v1/vendors/bulk-delete",
         {
             preHandler: requireAdmin,
         },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const { ids }: any = request.body;
+        async (request, reply) => {
+            const { ids } = request.body;
 
             if (!ids || !Array.isArray(ids) || ids.length === 0) {
                 return reply.status(400).send({ success: false, error: "IDs array is required and cannot be empty" });
@@ -180,10 +209,10 @@ export function vendorRoutes(fastify: FastifyInstance) {
     );
 
     // Get vendors by category (for AI agent)
-    fastify.get(
+    fastify.get<{ Params: ICategoryParams }>(
         "/api/v1/vendors/category/:category",
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const { category }: any = request.params;
+        async (request, reply) => {
+            const { category } = request.params;
 
             const vendors = await prisma.vendor.findMany({
                 where: {
