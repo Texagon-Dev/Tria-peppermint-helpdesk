@@ -1,20 +1,19 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { checkSession } from "../lib/session";
+import { checkSession, requireAdmin } from "../lib/session";
 import { prisma } from "../prisma";
-import { parse } from "csv-parse/sync";
+import { parse } from "csv-parse";
+import { pipeline } from "stream";
+import util from "util";
 import type { MultipartFile } from "@fastify/multipart";
+
+const pump = util.promisify(pipeline);
 
 export function vendorRoutes(fastify: FastifyInstance) {
     // Create vendor (admin only)
     fastify.post(
         "/api/v1/vendor/create",
         {
-            preHandler: async (request, reply) => {
-                const user = await checkSession(request);
-                if (!user?.isAdmin) {
-                    return reply.status(403).send({ success: false, error: "Admin access required" });
-                }
-            },
+            preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const { name, email, category, description }: any = request.body;
@@ -54,12 +53,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
     fastify.post(
         "/api/v1/vendor/update",
         {
-            preHandler: async (request, reply) => {
-                const user = await checkSession(request);
-                if (!user?.isAdmin) {
-                    return reply.status(403).send({ success: false, error: "Admin access required" });
-                }
-            },
+            preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const { id, name, email, category, description, active }: any = request.body;
@@ -100,12 +94,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
     fastify.get(
         "/api/v1/vendors/all",
         {
-            preHandler: async (request, reply) => {
-                const user = await checkSession(request);
-                if (!user?.isAdmin) {
-                    return reply.status(403).send({ success: false, error: "Admin access required" });
-                }
-            },
+            preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const vendors = await prisma.vendor.findMany({
@@ -120,12 +109,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
     fastify.get(
         "/api/v1/vendor/:id",
         {
-            preHandler: async (request, reply) => {
-                const user = await checkSession(request);
-                if (!user?.isAdmin) {
-                    return reply.status(403).send({ success: false, error: "Admin access required" });
-                }
-            },
+            preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const { id }: any = request.params;
@@ -146,12 +130,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
     fastify.delete(
         "/api/v1/vendors/:id/delete",
         {
-            preHandler: async (request, reply) => {
-                const user = await checkSession(request);
-                if (!user?.isAdmin) {
-                    return reply.status(403).send({ success: false, error: "Admin access required" });
-                }
-            },
+            preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const { id }: any = request.params;
@@ -175,12 +154,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
     fastify.post(
         "/api/v1/vendors/bulk-delete",
         {
-            preHandler: async (request, reply) => {
-                const user = await checkSession(request);
-                if (!user?.isAdmin) {
-                    return reply.status(403).send({ success: false, error: "Admin access required" });
-                }
-            },
+            preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const { ids }: any = request.body;
@@ -190,7 +164,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
             }
 
             try {
-                await prisma.vendor.deleteMany({
+                const result = await prisma.vendor.deleteMany({
                     where: {
                         id: {
                             in: ids
@@ -198,7 +172,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
                     },
                 });
 
-                reply.send({ success: true });
+                reply.send({ success: true, count: result.count });
             } catch (error: any) {
                 throw error;
             }
@@ -227,93 +201,90 @@ export function vendorRoutes(fastify: FastifyInstance) {
     fastify.post(
         "/api/v1/vendors/upload",
         {
-            preHandler: async (request, reply) => {
-                const user = await checkSession(request);
-                if (!user?.isAdmin) {
-                    return reply.status(403).send({ success: false, error: "Admin access required" });
-                }
-            }
+            preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
-            const data = await (request as any).file();
-            if (!data) {
-                return reply.status(400).send({ success: false, error: "No file uploaded" });
-            }
+            const parts = (request as any).parts();
+            let totalProcessed = 0;
+            let totalCreated = 0;
+            let totalErrors = 0;
+            // Limit errors to avoid huge response payload
+            const errors: any[] = [];
 
-            try {
-                // Get the file content as a buffer
-                const fileBuffer = await data.toBuffer();
-                const fileContent = fileBuffer.toString("utf-8");
+            for await (const part of parts) {
+                if (part.file) {
+                    if (part.mimetype !== 'text/csv' && !part.filename.endsWith('.csv')) {
+                        // consume part to avoid hanging
+                        part.file.resume();
+                        continue;
+                    }
 
-                const records = parse(fileContent, {
-                    columns: true,
-                    skip_empty_lines: true,
-                    trim: true
-                }) as Record<string, string>[];
-
-                if (records.length === 0) {
-                    return reply.status(400).send({ success: false, error: "CSV file is empty" });
-                }
-
-                // Basic validation of header structure based on first record
-                const requiredColumns = ["name", "email", "category", "description"];
-                const firstRecord = records[0];
-                const missingColumns = requiredColumns.filter(col => !(col in firstRecord));
-
-                if (missingColumns.length > 0) {
-                    return reply.status(400).send({
-                        success: false,
-                        error: `Missing required columns: ${missingColumns.join(", ")}`
+                    const parser = parse({
+                        columns: true,
+                        skip_empty_lines: true,
+                        trim: true,
+                        relax_quotes: true
                     });
-                }
 
-                let createdCount = 0;
-                let errorCount = 0;
-                const errors: any[] = [];
+                    // We need to process in batches to avoid memory issues and too many transactions
+                    let batch: any[] = [];
+                    const BATCH_SIZE = 50;
 
-                for (const record of records) {
                     try {
-                        const { name, email, category, description } = record;
+                        // Manually pumping the stream to control async flow
+                        for await (const record of part.file.pipe(parser)) {
+                            totalProcessed++;
 
-                        // Validate required fields for this record
-                        if (!name || !email || !category || !description) {
-                            errorCount++;
-                            errors.push({ email, error: "Missing required fields" });
-                            continue;
-                        }
+                            const { name, email, category, description } = record;
 
-                        // Upsert or Create - using create to catch duplicates simpler for now, 
-                        // or upsert to update existing? User just said "upload into the db".
-                        // Existing create logic throws if email exists. Let's try to create, and if it fails, log it.
-                        await prisma.vendor.create({
-                            data: {
+                            if (!name || !email || !category || !description) {
+                                totalErrors++;
+                                if (errors.length < 50) errors.push({ email, error: "Missing required fields" });
+                                continue;
+                            }
+
+                            batch.push({
                                 name,
                                 email,
                                 category,
                                 description,
-                                active: true
+                                active: true,
+                            });
+
+                            if (batch.length >= BATCH_SIZE) {
+                                await processBatch(batch);
+                                totalCreated += batch.length; // Approximate, if createMany succeeds
+                                batch = [];
                             }
-                        });
-                        createdCount++;
-                    } catch (err: any) {
-                        errorCount++;
-                        if (err.code === 'P2002') {
-                            errors.push({ email: record.email, error: "Vendor with this email already exists" });
-                        } else {
-                            errors.push({ email: record.email, error: err.message });
                         }
+
+                        // Process remaining
+                        if (batch.length > 0) {
+                            await processBatch(batch);
+                            totalCreated += batch.length;
+                        }
+
+                    } catch (err: any) {
+                        return reply.status(400).send({ success: false, error: `CSV Parsing error: ${err.message}` });
                     }
                 }
-
-                reply.send({
-                    success: true,
-                    message: `Processed ${records.length} vendors. Created: ${createdCount}, Failed: ${errorCount}`,
-                    errors: errorCount > 0 ? errors : undefined
-                });
-
-            } catch (err: any) {
-                return reply.status(400).send({ success: false, error: `Failed to parse CSV: ${err.message}` });
             }
+
+            async function processBatch(records: any[]) {
+                // createMany is faster but doesn't tell us which failed if one fails (postgres skips entire batch on constraint error usually unless ignoreDuplicates is set)
+                // Use createMany with skipDuplicates: true if we want to ignore existing
+                // Warning: skipDuplicates only works if there is a unique constraint conflict.
+                await prisma.vendor.createMany({
+                    data: records,
+                    skipDuplicates: true
+                });
+            }
+
+            reply.send({
+                success: true,
+                message: `Processed ${totalProcessed} records. Created/Ignored Duplicates: ${totalCreated}. Errors: ${totalErrors}`,
+                errors: errors.length > 0 ? errors : undefined
+            });
         }
     );
 }
