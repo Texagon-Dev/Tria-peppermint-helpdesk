@@ -55,8 +55,32 @@ CREATE UNIQUE INDEX "ApiKey_key_key" ON "ApiKey"("key");
 -- CreateIndex
 CREATE UNIQUE INDEX "Vendor_email_key" ON "Vendor"("email");
 
+-- Cleanup duplicate Comment.messageId values (keep earliest, NULL out rest)
+WITH ranked AS (
+  SELECT id, "messageId",
+         ROW_NUMBER() OVER (PARTITION BY "messageId" ORDER BY "createdAt" ASC) AS rn
+  FROM "Comment"
+  WHERE "messageId" IS NOT NULL
+)
+UPDATE "Comment" c
+SET "messageId" = NULL
+FROM ranked r
+WHERE c.id = r.id AND r.rn > 1;
+
 -- CreateIndex
 CREATE UNIQUE INDEX "Comment_messageId_key" ON "Comment"("messageId");
+
+-- Cleanup duplicate Ticket.threadId values (keep earliest, NULL out rest)
+WITH ranked AS (
+  SELECT id, "threadId",
+         ROW_NUMBER() OVER (PARTITION BY "threadId" ORDER BY "createdAt" ASC) AS rn
+  FROM "Ticket"
+  WHERE "threadId" IS NOT NULL
+)
+UPDATE "Ticket" t
+SET "threadId" = NULL
+FROM ranked r
+WHERE t.id = r.id AND r.rn > 1;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Ticket_threadId_key" ON "Ticket"("threadId");
