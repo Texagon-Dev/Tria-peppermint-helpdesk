@@ -33,3 +33,9 @@ export function normalizeExpiryToSeconds(value: number | bigint): number {
 
     return numValue;
 }
+
+/**
+ * Length of ticket ID prefix used in [REQ-xxx] reference tags.
+ * Used consistently in both outbound email (comment.ts) and inbound parsing (imap.service.ts).
+ */
+export const TICKET_REFERENCE_LENGTH = 8;

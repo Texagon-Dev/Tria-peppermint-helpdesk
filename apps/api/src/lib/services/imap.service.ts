@@ -276,7 +276,63 @@ export class ImapService {
   }
 
   /**
+   * Check if sender email is a registered vendor
+   */
+  private static async findVendorByEmail(email: string) {
+    return prisma.vendor.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        active: true
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true
+      }
+    });
+  }
+
+  /**
+   * Extract [REQ-xxx] reference from subject line
+   * Format: [REQ-abc12345] where abc12345 is first 8 chars of ticket ID (hex)
+   */
+  private static extractRequestReference(subject: string): string | null {
+    // Require exactly 8 hex characters to avoid false matches
+    const match = subject.match(/\[REQ-([a-f0-9]{8})\]/i);
+    return match?.[1] ?? null;
+  }
+
+  /**
+   * Find ticket by REQ reference (first 8+ chars of ticket ID)
+   */
+  private static async findTicketByReference(ref: string): Promise<Ticket | null> {
+    return prisma.ticket.findFirst({
+      where: {
+        id: { startsWith: ref, mode: 'insensitive' },
+        isComplete: false,
+      },
+    });
+  }
+
+  /**
+   * Add message ID to ticket's externalIds array (deduped)
+   */
+  private static async addMessageIdToTicket(
+    ticketId: string,
+    currentExternalIds: string[],
+    messageId: string | null
+  ): Promise<void> {
+    if (!messageId) return;
+    const updatedExternalIds = [...new Set([...currentExternalIds, messageId])];
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { externalIds: updatedExternalIds },
+    });
+  }
+
+  /**
    * Triple-Layer Matching Engine
+
    * Attempts to find an existing ticket for the incoming email
    */
   private static async findMatchingTicket(
@@ -328,7 +384,106 @@ export class ImapService {
     const inReplyToValue = safeHeaderValue(headers.get("in-reply-to"));
     const normalizedInReplyTo = normalizeMessageId(inReplyToValue);
 
-    // Try to find an existing ticket using triple-layer matching
+    // VENDOR DETECTION: Check if sender is a registered vendor
+    const vendor = await this.findVendorByEmail(senderEmail);
+
+    if (vendor) {
+      // This is a vendor email - try to match via [REQ-xxx] in subject
+      const reqReference = this.extractRequestReference(emailSubject);
+
+      if (reqReference) {
+        const ticket = await this.findTicketByReference(reqReference);
+
+        if (ticket) {
+          logger.info(
+            { ticketId: ticket.id, vendorName: vendor.name, reqRef: reqReference },
+            "Vendor email matched via [REQ-xxx] reference"
+          );
+
+          const replyText = getReplyText({ text: text || "No Body" });
+
+          // Use transaction for atomicity: comment + externalIds update
+          const comment = await prisma.$transaction(async (tx) => {
+            // Create the comment
+            const createdComment = await tx.comment.create({
+              data: {
+                text: replyText || text || "No Body",
+                userId: null,
+                ticketId: ticket.id,
+                reply: true,
+                replyEmail: senderEmail,
+                public: true,
+                messageId: normalizedMessageId,
+                inReplyTo: normalizedInReplyTo,
+                senderRole: 'vendor',
+              },
+            });
+
+            // Update externalIds atomically (re-fetch within transaction to avoid stale data)
+            if (normalizedMessageId) {
+              const current = await tx.ticket.findUnique({
+                where: { id: ticket.id },
+                select: { externalIds: true },
+              });
+
+              const externalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
+              await tx.ticket.update({
+                where: { id: ticket.id },
+                data: { externalIds },
+              });
+            }
+
+            return createdComment;
+          });
+
+          logger.info(
+            { commentId: comment.id, ticketId: ticket.id },
+            "Added vendor comment to ticket (transactional)"
+          );
+
+          // Trigger webhooks after transaction commits (outside transaction)
+          const replyWebhooks = await prisma.webhooks.findMany({
+            where: { type: "customer_reply_received", active: true },
+          });
+
+          await Promise.all(
+            replyWebhooks.map(async (webhook) => {
+              const message = {
+                event: "customer_reply_received",
+                ticketId: ticket.id,
+                ticketTitle: ticket.title,
+                commentId: comment.id,
+                replyContent: replyText || text || "No Body",
+                customerEmail: senderEmail,
+                customerName: senderName,
+                isCustomer: false,
+                isVendor: true,
+                fromImap: true,
+              };
+              logger.info(
+                { url: webhook.url },
+                "Triggering customer_reply_received webhook for vendor"
+              );
+              await sendWebhookNotification(webhook, message);
+            })
+          );
+
+          return; // Done processing vendor email
+        } else {
+          logger.warn(
+            { reqRef: reqReference, vendorEmail: senderEmail },
+            "Vendor email has [REQ-xxx] but no matching ticket found - falling back to normal flow"
+          );
+        }
+      } else {
+        logger.info(
+          { vendorEmail: senderEmail },
+          "Vendor email without [REQ-xxx] tag - treating as normal customer email"
+        );
+      }
+    }
+
+    // Try to find an existing ticket using triple-layer matching (for customers or fallback for vendors)
     const matchedTicket = await this.findMatchingTicket(
       headers,
       senderEmail,
@@ -375,15 +530,7 @@ export class ImapService {
         );
 
         // Update ticket's externalIds to include this message
-        if (normalizedMessageId) {
-          const updatedExternalIds = [
-            ...new Set([...matchedTicket.externalIds, normalizedMessageId]),
-          ];
-          await prisma.ticket.update({
-            where: { id: matchedTicket.id },
-            data: { externalIds: updatedExternalIds },
-          });
-        }
+        await this.addMessageIdToTicket(matchedTicket.id, matchedTicket.externalIds, normalizedMessageId);
       }
     } else {
       // No matching ticket found - create new
@@ -485,7 +632,8 @@ export class ImapService {
     senderName: string,
     textContent: string,
     messageId: string | null,
-    inReplyTo: string | null
+    inReplyTo: string | null,
+    senderRole: 'customer' | 'vendor' | 'ai' | 'agent' = 'customer'
   ): Promise<void> {
     const replyText = getReplyText({ text: textContent });
 
@@ -499,6 +647,7 @@ export class ImapService {
         public: true,
         messageId: messageId,
         inReplyTo: inReplyTo,
+        senderRole: senderRole,
       },
     });
 

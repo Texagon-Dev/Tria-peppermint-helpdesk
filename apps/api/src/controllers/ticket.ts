@@ -19,6 +19,7 @@ import {
 import { sendWebhookNotification } from "../lib/notifications/webhook";
 import { requirePermission } from "../lib/roles";
 import { checkSession } from "../lib/session";
+import { ICommentBody } from "../lib/types/request";
 import { prisma } from "../prisma";
 
 const validateEmail = (email: string) => {
@@ -653,13 +654,13 @@ export function ticketRoutes(fastify: FastifyInstance) {
   // );
 
   // Comment on a ticket
-  fastify.post(
+  fastify.post<{ Body: ICommentBody }>(
     "/api/v1/ticket/comment",
     {
       preHandler: requirePermission(["issue::comment"]),
     },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const { text, id, public: public_comment }: any = request.body;
+    async (request, reply) => {
+      const { text, id, public: public_comment, senderRole } = request.body;
 
       const user = await checkSession(request);
 
@@ -669,6 +670,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
           public: public_comment,
           ticketId: id,
           userId: user!.id,
+          senderRole: senderRole || 'agent', // Default to 'agent' for logged-in users
         },
       });
 
