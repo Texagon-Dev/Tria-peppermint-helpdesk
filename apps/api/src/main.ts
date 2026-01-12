@@ -2,8 +2,6 @@ import cors from "@fastify/cors";
 import "dotenv/config";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
-import swagger from "@fastify/swagger";
-import swaggerUi from "@fastify/swagger-ui";
 import fs from "fs";
 
 
@@ -48,63 +46,10 @@ server.register(multipart as any, {
   },
 });
 
-// Register Swagger
-// Note: Server URL is environment-driven to avoid hardcoding deployment-specific values
-const apiServerUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5003}`;
-server.register(swagger as any, {
-  openapi: {
-    info: {
-      title: 'Peppermint API',
-      description: 'API documentation for Peppermint Helpdesk',
-      version: '1.0.0'
-    },
-    servers: [
-      {
-        url: apiServerUrl,
-        description: process.env.API_URL ? 'API Server' : 'Local development server'
-      }
-    ],
-    components: {
-      securitySchemes: {
-        // Use standard OpenAPI http bearer format for better client/tooling compatibility
-        Bearer: {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT'
-        }
-      }
-    }
-  }
-});
-
-
-server.register(swaggerUi as any, {
-  routePrefix: '/docs',
-  uiConfig: {
-    docExpansion: 'list',
-    deepLinking: false
-  },
-  staticCSP: true,
-});
-
 registerRoutes(server);
 
 server.get(
   "/",
-  {
-    schema: {
-      tags: ["health"], // This groups the endpoint under a category
-      description: "Health check endpoint",
-      response: {
-        200: {
-          type: "object",
-          properties: {
-            healthy: { type: "boolean" },
-          },
-        },
-      },
-    },
-  },
   async function (request, response) {
     response.send({ healthy: true });
   }
@@ -138,13 +83,6 @@ server.addHook("preHandler", async function (request: any, reply: any) {
       request.url.startsWith("/api/v1/config/email/oauth/gmail") &&
       request.method === "GET"
     ) {
-      return true;
-    }
-    // Skip auth for Swagger documentation
-    // Note: Use URL parsing to extract pathname, avoiding query string edge cases
-    // (e.g., /docs?foo=bar would fail with request.url === "/docs")
-    const urlPathname = new URL(request.url, 'http://localhost').pathname;
-    if (urlPathname === '/docs' || urlPathname.startsWith('/docs/')) {
       return true;
     }
     // Skip auth if API Key is present (handled by route middleware)

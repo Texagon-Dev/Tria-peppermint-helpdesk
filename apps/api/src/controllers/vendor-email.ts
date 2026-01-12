@@ -22,32 +22,17 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
         {
             preHandler: requirePermission(["issue::comment"]),
             schema: {
-                description: 'Send an email to a vendor and append it as a comment to the ticket',
-                tags: ['Ticket'],
                 body: {
                     type: 'object',
                     required: ['ticketId', 'vendorEmail', 'subject', 'body'],
                     properties: {
-                        ticketId: { type: 'string', minLength: 1, description: 'The unique ID of the ticket' },
-                        vendorEmail: { type: 'string', format: 'email', description: 'Recipient vendor email address' },
-                        subject: { type: 'string', minLength: 1, description: 'Email subject (Peppermint will prepend [REQ-xxx])' },
-                        body: { type: 'string', minLength: 1, description: 'Email body content' }
-                    }
-                },
-                response: {
-                    200: {
-                        type: 'object',
-                        properties: {
-                            success: { type: 'boolean' },
-                            messageId: { type: 'string' },
-                            message: { type: 'string' }
-                        }
+                        ticketId: { type: 'string', minLength: 1 },
+                        vendorEmail: { type: 'string', format: 'email' },
+                        subject: { type: 'string', minLength: 1 },
+                        body: { type: 'string', minLength: 1 }
                     }
                 }
-                // Note: 'as any' is required because Fastify's base FastifySchema type
-                // doesn't include Swagger-specific properties (description, tags, response).
-                // This is the standard pattern when using @fastify/swagger.
-            } as any
+            }
         },
 
         async (request, reply) => {
