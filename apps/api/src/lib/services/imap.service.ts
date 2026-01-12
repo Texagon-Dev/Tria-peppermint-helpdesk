@@ -278,7 +278,7 @@ export class ImapService {
   /**
    * Check if sender email is a registered vendor
    */
-  private static async findVendorByEmail(email: string): Promise<any | null> {
+  private static async findVendorByEmail(email: string): Promise<import("@prisma/client").Vendor | null> {
     return prisma.vendor.findFirst({
       where: {
         email: { equals: email, mode: 'insensitive' },
@@ -305,6 +305,22 @@ export class ImapService {
         id: { startsWith: ref, mode: 'insensitive' },
         isComplete: false,
       },
+    });
+  }
+
+  /**
+   * Add message ID to ticket's externalIds array (deduped)
+   */
+  private static async addMessageIdToTicket(
+    ticketId: string,
+    currentExternalIds: string[],
+    messageId: string | null
+  ): Promise<void> {
+    if (!messageId) return;
+    const updatedExternalIds = [...new Set([...currentExternalIds, messageId])];
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { externalIds: updatedExternalIds },
     });
   }
 
@@ -390,15 +406,7 @@ export class ImapService {
           );
 
           // Update ticket's externalIds
-          if (normalizedMessageId) {
-            const updatedExternalIds = [
-              ...new Set([...ticket.externalIds, normalizedMessageId]),
-            ];
-            await prisma.ticket.update({
-              where: { id: ticket.id },
-              data: { externalIds: updatedExternalIds },
-            });
-          }
+          await this.addMessageIdToTicket(ticket.id, ticket.externalIds, normalizedMessageId);
 
           return; // Done processing vendor email
         } else {
@@ -462,15 +470,7 @@ export class ImapService {
         );
 
         // Update ticket's externalIds to include this message
-        if (normalizedMessageId) {
-          const updatedExternalIds = [
-            ...new Set([...matchedTicket.externalIds, normalizedMessageId]),
-          ];
-          await prisma.ticket.update({
-            where: { id: matchedTicket.id },
-            data: { externalIds: updatedExternalIds },
-          });
-        }
+        await this.addMessageIdToTicket(matchedTicket.id, matchedTicket.externalIds, normalizedMessageId);
       }
     } else {
       // No matching ticket found - create new
