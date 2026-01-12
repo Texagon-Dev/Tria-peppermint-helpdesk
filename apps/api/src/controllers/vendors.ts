@@ -372,25 +372,19 @@ export function vendorRoutes(fastify: FastifyInstance) {
             const { id } = request.params;
 
             try {
-                // Check if any vendors are using this category
-                const vendorsUsingCategory = await prisma.vendor.count({
-                    where: { categoryId: id },
-                });
-
-                if (vendorsUsingCategory > 0) {
-                    return reply.status(400).send({
-                        success: false,
-                        error: `Cannot delete category. ${vendorsUsingCategory} vendor(s) are using this category.`,
-                    });
-                }
-
                 await prisma.vendorCategory.delete({
                     where: { id },
                 });
 
                 reply.send({ success: true });
             } catch (error: any) {
-                if (error.code === "P2025") {
+                if (error.code === "P2003") { // Foreign key constraint failed
+                    return reply.status(400).send({
+                        success: false,
+                        error: "Cannot delete category because it is in use by one or more vendors.",
+                    });
+                }
+                if (error.code === "P2025") { // Record to delete does not exist
                     return reply.status(404).send({ success: false, error: "Category not found" });
                 }
                 throw error;
