@@ -50,8 +50,9 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
                         }
                     }
                 }
-            }
+            } as any
         },
+
 
         async (request, reply) => {
             const { ticketId, vendorEmail, subject, body } = request.body;
