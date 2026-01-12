@@ -318,7 +318,6 @@ export function vendorRoutes(fastify: FastifyInstance) {
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const categories = await prisma.vendorCategory.findMany({
-                where: { active: true },
                 orderBy: { name: "asc" },
             });
 
