@@ -49,6 +49,8 @@ server.register(multipart as any, {
 });
 
 // Register Swagger
+// Note: Server URL is environment-driven to avoid hardcoding deployment-specific values
+const apiServerUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5003}`;
 server.register(swagger as any, {
   openapi: {
     info: {
@@ -58,20 +60,17 @@ server.register(swagger as any, {
     },
     servers: [
       {
-        url: 'https://tria-peppermint-helpdesk-production.up.railway.app',
-        description: 'Production server'
-      },
-      {
-        url: 'http://localhost:5003',
-        description: 'Local development server'
+        url: apiServerUrl,
+        description: process.env.API_URL ? 'API Server' : 'Local development server'
       }
     ],
     components: {
       securitySchemes: {
+        // Use standard OpenAPI http bearer format for better client/tooling compatibility
         Bearer: {
-          type: 'apiKey',
-          name: 'Authorization',
-          in: 'header'
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT'
         }
       }
     }
@@ -142,14 +141,10 @@ server.addHook("preHandler", async function (request: any, reply: any) {
       return true;
     }
     // Skip auth for Swagger documentation
-    if (
-      (request.url === "/docs" ||
-        request.url.startsWith("/docs/") ||
-        request.url === "/docs/json" ||
-        request.url === "/docs/yaml" ||
-        request.url === "/docs/static") &&
-      request.method === "GET"
-    ) {
+    // Note: Use URL parsing to extract pathname, avoiding query string edge cases
+    // (e.g., /docs?foo=bar would fail with request.url === "/docs")
+    const urlPathname = new URL(request.url, 'http://localhost').pathname;
+    if (urlPathname === '/docs' || urlPathname.startsWith('/docs/')) {
       return true;
     }
     // Skip auth if API Key is present (handled by route middleware)
