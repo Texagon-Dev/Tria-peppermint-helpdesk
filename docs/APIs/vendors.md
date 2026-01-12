@@ -27,6 +27,7 @@ API endpoints for managing vendors in the helpdesk system.
 | DELETE | `/api/v1/vendors/:id/delete` | Delete a vendor |
 | POST | `/api/v1/vendors/bulk-delete` | Delete multiple vendors |
 | GET | `/api/v1/vendors/category/:category` | Get vendors by category name |
+| GET | `/api/v1/vendors/export` | Export vendors to CSV |
 | POST | `/api/v1/vendors/upload` | Upload vendors from CSV |
 
 ---
@@ -338,6 +339,27 @@ curl -X GET http://localhost:3000/api/v1/vendors/category/Plumbing
 
 ---
 
+## Export Vendors
+
+Export all vendors to a CSV file. The category field will contain the category name.
+
+**Endpoint:** `GET /api/v1/vendors/export`  
+**Auth:** Admin only
+
+### cURL Example
+
+```bash
+curl -X GET http://localhost:3000/api/v1/vendors/export \
+  -H "Cookie: session=YOUR_SESSION_TOKEN" > vendors.csv
+```
+
+### Response
+
+Returns a CSV file with the following headers:
+`name,email,category,description`
+
+---
+
 ## Upload Vendors CSV
 
 Bulk import vendors from a CSV file.
@@ -353,6 +375,8 @@ name,email,category,description
 ABC Plumbing,contact@abc.com,Plumbing,Professional services
 XYZ Electric,info@xyz.com,Electrical,24/7 electrician
 ```
+
+**Note:** The `category` column should contain the category name (e.g., "Plumbing"). If the category does not exist, it will be automatically created.
 
 ### cURL Example
 

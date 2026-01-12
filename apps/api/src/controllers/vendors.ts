@@ -217,6 +217,42 @@ export function vendorRoutes(fastify: FastifyInstance) {
         }
     );
 
+    // Export vendors to CSV (admin only)
+    fastify.get(
+        "/api/v1/vendors/export",
+        {
+            preHandler: requireAdmin,
+        },
+        async (request, reply) => {
+            const vendors = await prisma.vendor.findMany({
+                include: {
+                    category: true,
+                },
+                orderBy: { name: "asc" },
+            });
+
+            // Helper to escape CSV fields
+            const escapeCSV = (field: string | null | undefined) => {
+                if (!field) return "";
+                const stringField = String(field);
+                if (stringField.includes(",") || stringField.includes('"') || stringField.includes("\n")) {
+                    return `"${stringField.replace(/"/g, '""')}"`;
+                }
+                return stringField;
+            };
+
+            const csvHeader = "name,email,category,description\n";
+            const csvRows = vendors.map(v =>
+                `${escapeCSV(v.name)},${escapeCSV(v.email)},${escapeCSV(v.category?.name)},${escapeCSV(v.description)}`
+            ).join("\n");
+
+            reply
+                .header("Content-Type", "text/csv")
+                .header("Content-Disposition", "attachment; filename=vendors.csv")
+                .send(csvHeader + csvRows);
+        }
+    );
+
     // Upload vendors from CSV (admin only)
     fastify.post(
         "/api/v1/vendors/upload",
@@ -230,6 +266,14 @@ export function vendorRoutes(fastify: FastifyInstance) {
             let totalErrors = 0;
             // Limit errors to avoid huge response payload
             const errors: any[] = [];
+
+            // Pre-load categories for mapping
+            const existingCategories = await prisma.vendorCategory.findMany();
+            const categoryMap = new Map<string, string>(); // lowercase name -> id
+
+            existingCategories.forEach(c => {
+                categoryMap.set(c.name.toLowerCase().trim(), c.id);
+            });
 
             for await (const part of parts) {
                 if (part.file) {
@@ -263,10 +307,47 @@ export function vendorRoutes(fastify: FastifyInstance) {
                                 continue;
                             }
 
+                            // Handle category mapping
+                            let categoryId: string;
+                            const normalizedCategoryName = category.trim();
+                            const lowerCategoryName = normalizedCategoryName.toLowerCase();
+
+                            if (categoryMap.has(lowerCategoryName)) {
+                                categoryId = categoryMap.get(lowerCategoryName)!;
+                            } else {
+                                // Create new category
+                                try {
+                                    const newCategory = await prisma.vendorCategory.create({
+                                        data: { name: normalizedCategoryName }
+                                    });
+                                    categoryId = newCategory.id;
+                                    categoryMap.set(lowerCategoryName, categoryId); // Update map
+                                } catch (err: any) {
+                                    // Handle race condition if category created by another process/record
+                                    if (err.code === 'P2002') {
+                                        const existing = await prisma.vendorCategory.findUnique({
+                                            where: { name: normalizedCategoryName }
+                                        });
+                                        if (existing) {
+                                            categoryId = existing.id;
+                                            categoryMap.set(lowerCategoryName, categoryId);
+                                        } else {
+                                            totalErrors++;
+                                            if (errors.length < 50) errors.push({ email, error: `Failed to create/find category: ${normalizedCategoryName}` });
+                                            continue;
+                                        }
+                                    } else {
+                                        totalErrors++;
+                                        if (errors.length < 50) errors.push({ email, error: `Category creation error: ${err.message}` });
+                                        continue;
+                                    }
+                                }
+                            }
+
                             batch.push({
                                 name,
                                 email,
-                                category,
+                                categoryId, // Use the mapped UUID
                                 description,
                                 active: true,
                             });
