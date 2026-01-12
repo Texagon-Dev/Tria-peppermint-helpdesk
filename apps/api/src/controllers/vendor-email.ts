@@ -27,7 +27,32 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
         "/api/v1/ticket/vendor-email",
         {
             preHandler: requirePermission(["issue::comment"]),
+            schema: {
+                description: 'Send an email to a vendor and append it as a comment to the ticket',
+                tags: ['Ticket'],
+                body: {
+                    type: 'object',
+                    required: ['ticketId', 'vendorEmail', 'subject', 'body'],
+                    properties: {
+                        ticketId: { type: 'string', description: 'The unique ID of the ticket' },
+                        vendorEmail: { type: 'string', format: 'email', description: 'Recipient vendor email address' },
+                        subject: { type: 'string', description: 'Email subject (Peppermint will prepend [REQ-xxx])' },
+                        body: { type: 'string', description: 'Email body content' }
+                    }
+                },
+                response: {
+                    200: {
+                        type: 'object',
+                        properties: {
+                            success: { type: 'boolean' },
+                            messageId: { type: 'string' },
+                            message: { type: 'string' }
+                        }
+                    }
+                }
+            }
         },
+
         async (request, reply) => {
             const { ticketId, vendorEmail, subject, body } = request.body;
 

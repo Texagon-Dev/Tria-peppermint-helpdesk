@@ -50,21 +50,34 @@ server.register(multipart as any, {
 
 // Register Swagger
 server.register(swagger as any, {
-  swagger: {
+  openapi: {
     info: {
       title: 'Peppermint API',
       description: 'API documentation for Peppermint Helpdesk',
       version: '1.0.0'
     },
-    securityDefinitions: {
-      Bearer: {
-        type: 'apiKey',
-        name: 'Authorization',
-        in: 'header'
+    servers: [
+      {
+        url: 'https://tria-peppermint-helpdesk-production.up.railway.app',
+        description: 'Production server'
+      },
+      {
+        url: 'http://localhost:5003',
+        description: 'Local development server'
+      }
+    ],
+    components: {
+      securitySchemes: {
+        Bearer: {
+          type: 'apiKey',
+          name: 'Authorization',
+          in: 'header'
+        }
       }
     }
   }
 });
+
 
 server.register(swaggerUi as any, {
   routePrefix: '/docs',
