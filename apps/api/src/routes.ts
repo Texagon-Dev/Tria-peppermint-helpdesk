@@ -13,6 +13,8 @@ import { timeTrackingRoutes } from "./controllers/time";
 import { userRoutes } from "./controllers/users";
 import { webhookRoutes } from "./controllers/webhooks";
 import { vendorRoutes } from "./controllers/vendors";
+import { vendorEmailRoutes } from "./controllers/vendor-email";
+
 
 
 export function registerRoutes(fastify: FastifyInstance) {
@@ -30,5 +32,6 @@ export function registerRoutes(fastify: FastifyInstance) {
   objectStoreRoutes(fastify);
   roleRoutes(fastify);
   vendorRoutes(fastify);
+  vendorEmailRoutes(fastify);
 }
 
