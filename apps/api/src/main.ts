@@ -128,6 +128,17 @@ server.addHook("preHandler", async function (request: any, reply: any) {
     ) {
       return true;
     }
+    // Skip auth for Swagger documentation
+    if (
+      (request.url === "/docs" ||
+        request.url.startsWith("/docs/") ||
+        request.url === "/docs/json" ||
+        request.url === "/docs/yaml" ||
+        request.url === "/docs/static") &&
+      request.method === "GET"
+    ) {
+      return true;
+    }
     // Skip auth if API Key is present (handled by route middleware)
     if (request.headers["x-api-key"]) {
       return true;
