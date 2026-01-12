@@ -399,19 +399,73 @@ export class ImapService {
             "Vendor email matched via [REQ-xxx] reference"
           );
 
-          // Append vendor comment
-          await this.appendCommentToTicket(
-            ticket,
-            senderEmail,
-            senderName,
-            text || "No Body",
-            normalizedMessageId,
-            normalizedInReplyTo,
-            'vendor' // SenderRole for vendor
+          const replyText = getReplyText({ text: text || "No Body" });
+
+          // Use transaction for atomicity: comment + externalIds update
+          const comment = await prisma.$transaction(async (tx) => {
+            // Create the comment
+            const createdComment = await tx.comment.create({
+              data: {
+                text: replyText || text || "No Body",
+                userId: null,
+                ticketId: ticket.id,
+                reply: true,
+                replyEmail: senderEmail,
+                public: true,
+                messageId: normalizedMessageId,
+                inReplyTo: normalizedInReplyTo,
+                senderRole: 'vendor',
+              },
+            });
+
+            // Update externalIds atomically (re-fetch within transaction to avoid stale data)
+            if (normalizedMessageId) {
+              const current = await tx.ticket.findUnique({
+                where: { id: ticket.id },
+                select: { externalIds: true },
+              });
+
+              const externalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
+              await tx.ticket.update({
+                where: { id: ticket.id },
+                data: { externalIds },
+              });
+            }
+
+            return createdComment;
+          });
+
+          logger.info(
+            { commentId: comment.id, ticketId: ticket.id },
+            "Added vendor comment to ticket (transactional)"
           );
 
-          // Update ticket's externalIds
-          await this.addMessageIdToTicket(ticket.id, ticket.externalIds, normalizedMessageId);
+          // Trigger webhooks after transaction commits (outside transaction)
+          const replyWebhooks = await prisma.webhooks.findMany({
+            where: { type: "customer_reply_received", active: true },
+          });
+
+          await Promise.all(
+            replyWebhooks.map(async (webhook) => {
+              const message = {
+                event: "customer_reply_received",
+                ticketId: ticket.id,
+                ticketTitle: ticket.title,
+                commentId: comment.id,
+                replyContent: replyText || text || "No Body",
+                customerEmail: senderEmail,
+                customerName: senderName,
+                isCustomer: false,
+                isVendor: true,
+                fromImap: true,
+              };
+              logger.info(
+                { url: webhook.url },
+                "Triggering customer_reply_received webhook for vendor"
+              );
+              await sendWebhookNotification(webhook, message);
+            })
+          );
 
           return; // Done processing vendor email
         } else {
