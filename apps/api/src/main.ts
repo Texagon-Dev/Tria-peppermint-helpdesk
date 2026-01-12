@@ -2,7 +2,10 @@ import cors from "@fastify/cors";
 import "dotenv/config";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import fs from "fs";
+
 
 import { exec } from "child_process";
 import { track } from "./lib/hog";
@@ -43,6 +46,33 @@ server.register(multipart as any, {
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
   },
+});
+
+// Register Swagger
+server.register(swagger as any, {
+  swagger: {
+    info: {
+      title: 'Peppermint API',
+      description: 'API documentation for Peppermint Helpdesk',
+      version: '1.0.0'
+    },
+    securityDefinitions: {
+      Bearer: {
+        type: 'apiKey',
+        name: 'Authorization',
+        in: 'header'
+      }
+    }
+  }
+});
+
+server.register(swaggerUi as any, {
+  routePrefix: '/docs',
+  uiConfig: {
+    docExpansion: 'list',
+    deepLinking: false
+  },
+  staticCSP: true,
 });
 
 registerRoutes(server);
