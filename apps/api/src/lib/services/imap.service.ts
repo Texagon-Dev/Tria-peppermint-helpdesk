@@ -278,12 +278,17 @@ export class ImapService {
   /**
    * Check if sender email is a registered vendor
    */
-  private static async findVendorByEmail(email: string): Promise<import("@prisma/client").Vendor | null> {
+  private static async findVendorByEmail(email: string) {
     return prisma.vendor.findFirst({
       where: {
         email: { equals: email, mode: 'insensitive' },
         active: true
       },
+      select: {
+        id: true,
+        name: true,
+        email: true
+      }
     });
   }
 
