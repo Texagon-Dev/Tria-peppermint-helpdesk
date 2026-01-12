@@ -2,7 +2,7 @@
 export interface ICreateVendorBody {
     name: string;
     email: string;
-    category: string;
+    categoryId: string;
     description: string;
 }
 
@@ -10,7 +10,7 @@ export interface IUpdateVendorBody {
     id: string;
     name?: string;
     email?: string;
-    category?: string;
+    categoryId?: string;
     description?: string;
     active?: boolean;
 }
@@ -25,6 +25,15 @@ export interface IVendorIdParams {
 
 export interface ICategoryParams {
     category: string;
+}
+
+// Vendor Category request types
+export interface ICreateCategoryBody {
+    name: string;
+}
+
+export interface ICategoryIdParams {
+    id: string;
 }
 
 // Ticket controller request types
