@@ -10,7 +10,9 @@ import {
     IUpdateVendorBody,
     IBulkDeleteBody,
     IVendorIdParams,
-    ICategoryParams
+    ICategoryParams,
+    ICreateCategoryBody,
+    ICategoryIdParams
 } from "../lib/types/request";
 
 const pump = util.promisify(pipeline);
@@ -23,13 +25,13 @@ export function vendorRoutes(fastify: FastifyInstance) {
             preHandler: requireAdmin,
         },
         async (request, reply) => {
-            const { name, email, category, description } = request.body;
+            const { name, email, categoryId, description } = request.body;
 
             // Validate required fields
-            if (!name || !email || !category || !description) {
+            if (!name || !email || !categoryId || !description) {
                 return reply.status(400).send({
                     success: false,
-                    error: "Name, email, category, and description are required",
+                    error: "Name, email, categoryId, and description are required",
                 });
             }
 
@@ -38,7 +40,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
                     data: {
                         name,
                         email,
-                        category,
+                        categoryId,
                         description,
                     },
                 });
@@ -63,7 +65,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
             preHandler: requireAdmin,
         },
         async (request, reply) => {
-            const { id, name, email, category, description, active } = request.body;
+            const { id, name, email, categoryId, description, active } = request.body;
 
             if (!id) {
                 return reply.status(400).send({ success: false, error: "Vendor ID is required" });
@@ -75,7 +77,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
                     data: {
                         name,
                         email,
-                        category,
+                        categoryId,
                         description,
                         active,
                     },
@@ -105,6 +107,9 @@ export function vendorRoutes(fastify: FastifyInstance) {
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
             const vendors = await prisma.vendor.findMany({
+                include: {
+                    category: true,
+                },
                 orderBy: { createdAt: "desc" },
             });
 
@@ -123,6 +128,9 @@ export function vendorRoutes(fastify: FastifyInstance) {
 
             const vendor = await prisma.vendor.findUnique({
                 where: { id },
+                include: {
+                    category: true,
+                },
             });
 
             if (!vendor) {
@@ -186,7 +194,7 @@ export function vendorRoutes(fastify: FastifyInstance) {
         }
     );
 
-    // Get vendors by category (for AI agent)
+    // Get vendors by category name (for AI agent)
     fastify.get<{ Params: ICategoryParams }>(
         "/api/v1/vendors/category/:category",
         async (request, reply) => {
@@ -194,8 +202,13 @@ export function vendorRoutes(fastify: FastifyInstance) {
 
             const vendors = await prisma.vendor.findMany({
                 where: {
-                    category,
+                    category: {
+                        name: category,
+                    },
                     active: true,
+                },
+                include: {
+                    category: true,
                 },
                 orderBy: { name: "asc" },
             });
@@ -292,6 +305,96 @@ export function vendorRoutes(fastify: FastifyInstance) {
                 message: `Processed ${totalProcessed} records. Created/Ignored Duplicates: ${totalCreated}. Errors: ${totalErrors}`,
                 errors: errors.length > 0 ? errors : undefined
             });
+        }
+    );
+
+    // === VENDOR CATEGORY ENDPOINTS ===
+
+    // Get all categories (admin only)
+    fastify.get(
+        "/api/v1/vendor-categories",
+        {
+            preHandler: requireAdmin,
+        },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const categories = await prisma.vendorCategory.findMany({
+                where: { active: true },
+                orderBy: { name: "asc" },
+            });
+
+            reply.send({ success: true, categories });
+        }
+    );
+
+    // Create vendor category (admin only)
+    fastify.post<{ Body: ICreateCategoryBody }>(
+        "/api/v1/vendor-category/create",
+        {
+            preHandler: requireAdmin,
+        },
+        async (request, reply) => {
+            const { name } = request.body;
+
+            if (!name || name.trim() === "") {
+                return reply.status(400).send({
+                    success: false,
+                    error: "Category name is required",
+                });
+            }
+
+            try {
+                const category = await prisma.vendorCategory.create({
+                    data: {
+                        name: name.trim(),
+                    },
+                });
+
+                reply.send({ success: true, category });
+            } catch (error: any) {
+                if (error.code === "P2002") {
+                    return reply.status(400).send({
+                        success: false,
+                        error: "A category with this name already exists",
+                    });
+                }
+                throw error;
+            }
+        }
+    );
+
+    // Delete vendor category (admin only)
+    fastify.delete<{ Params: ICategoryIdParams }>(
+        "/api/v1/vendor-category/:id/delete",
+        {
+            preHandler: requireAdmin,
+        },
+        async (request, reply) => {
+            const { id } = request.params;
+
+            try {
+                // Check if any vendors are using this category
+                const vendorsUsingCategory = await prisma.vendor.count({
+                    where: { categoryId: id },
+                });
+
+                if (vendorsUsingCategory > 0) {
+                    return reply.status(400).send({
+                        success: false,
+                        error: `Cannot delete category. ${vendorsUsingCategory} vendor(s) are using this category.`,
+                    });
+                }
+
+                await prisma.vendorCategory.delete({
+                    where: { id },
+                });
+
+                reply.send({ success: true });
+            } catch (error: any) {
+                if (error.code === "P2025") {
+                    return reply.status(404).send({ success: false, error: "Category not found" });
+                }
+                throw error;
+            }
         }
     );
 }
