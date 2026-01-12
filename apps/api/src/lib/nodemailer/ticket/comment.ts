@@ -2,6 +2,7 @@ import handlebars from "handlebars";
 import { prisma } from "../../../prisma";
 import { createTransportProvider } from "../transport";
 import { convertMarkdownToHtmlSync } from "../utils/markdown";
+import { TICKET_REFERENCE_LENGTH } from "../../constants";
 
 export interface CommentEmailOptions {
   comment: string;
@@ -37,7 +38,7 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
     var htmlToSend = template(replacements);
 
     // Build subject with optional REQ reference for vendors
-    const refTag = options.isVendorEmail ? `[REQ-${ticketId.slice(0, 8)}] ` : '';
+    const refTag = options.isVendorEmail ? `[REQ-${ticketId.slice(0, TICKET_REFERENCE_LENGTH)}] ` : '';
     const subject = originalSubject
       ? `${refTag}Re: ${originalSubject.replace(/^(Re:\s*)+/i, '')}` // Remove existing Re: prefixes
       : `${refTag}New comment on Issue #${title} ref: #${ticketId}`;
