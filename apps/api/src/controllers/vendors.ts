@@ -5,37 +5,15 @@ import { parse } from "csv-parse";
 import { pipeline } from "stream";
 import util from "util";
 import type { MultipartFile } from "@fastify/multipart";
+import {
+    ICreateVendorBody,
+    IUpdateVendorBody,
+    IBulkDeleteBody,
+    IVendorIdParams,
+    ICategoryParams
+} from "../lib/types/request";
 
 const pump = util.promisify(pipeline);
-
-// Request type interfaces
-interface ICreateVendorBody {
-    name: string;
-    email: string;
-    category: string;
-    description: string;
-}
-
-interface IUpdateVendorBody {
-    id: string;
-    name?: string;
-    email?: string;
-    category?: string;
-    description?: string;
-    active?: boolean;
-}
-
-interface IBulkDeleteBody {
-    ids: string[];
-}
-
-interface IVendorIdParams {
-    id: string;
-}
-
-interface ICategoryParams {
-    category: string;
-}
 
 export function vendorRoutes(fastify: FastifyInstance) {
     // Create vendor (admin only)
@@ -223,31 +201,6 @@ export function vendorRoutes(fastify: FastifyInstance) {
             });
 
             reply.send({ success: true, vendors });
-        }
-    );
-
-    // Lookup vendor by email (for IMAP service and AI agent)
-    interface IEmailParams {
-        email: string;
-    }
-
-    fastify.get<{ Params: IEmailParams }>(
-        "/api/v1/vendor/lookup/:email",
-        async (request, reply) => {
-            const email = decodeURIComponent(request.params.email);
-
-            const vendor = await prisma.vendor.findFirst({
-                where: {
-                    email: { equals: email, mode: 'insensitive' },
-                    active: true
-                },
-            });
-
-            reply.send({
-                success: true,
-                isVendor: !!vendor,
-                vendor: vendor || null
-            });
         }
     );
 
