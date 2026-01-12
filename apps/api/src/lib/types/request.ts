@@ -34,3 +34,11 @@ export interface ICommentBody {
     public?: boolean;
     senderRole?: 'customer' | 'vendor' | 'ai' | 'agent';
 }
+
+export interface IVendorEmailBody {
+    ticketId: string;
+    vendorEmail: string;
+    subject: string;
+    body: string;
+}
+

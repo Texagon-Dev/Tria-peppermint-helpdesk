@@ -4,6 +4,7 @@ import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import fs from "fs";
 
+
 import { exec } from "child_process";
 import { track } from "./lib/hog";
 import { getEmails } from "./lib/imap";
@@ -49,20 +50,6 @@ registerRoutes(server);
 
 server.get(
   "/",
-  {
-    schema: {
-      tags: ["health"], // This groups the endpoint under a category
-      description: "Health check endpoint",
-      response: {
-        200: {
-          type: "object",
-          properties: {
-            healthy: { type: "boolean" },
-          },
-        },
-      },
-    },
-  },
   async function (request, response) {
     response.send({ healthy: true });
   }
