@@ -5,15 +5,6 @@ import { requirePermission } from "../lib/roles";
 import { sendComment } from "../lib/nodemailer/ticket/comment";
 import { IVendorEmailBody } from "../lib/types/request";
 
-
-/**
- * Validates email format
- */
-const isValidEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-};
-
 /**
  * Vendor email routes
  * Handles sending emails to vendors with automatic [REQ-xxx] prefix
@@ -22,6 +13,9 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
     /**
      * POST /api/v1/ticket/vendor-email
      * Send email to vendor and append to ticket as comment
+     * 
+     * Note: Fastify validates required fields and email format via schema.
+     * Manual validation removed to avoid drift with schema definition.
      */
     fastify.post<{ Body: IVendorEmailBody }>(
         "/api/v1/ticket/vendor-email",
@@ -34,10 +28,10 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
                     type: 'object',
                     required: ['ticketId', 'vendorEmail', 'subject', 'body'],
                     properties: {
-                        ticketId: { type: 'string', description: 'The unique ID of the ticket' },
+                        ticketId: { type: 'string', minLength: 1, description: 'The unique ID of the ticket' },
                         vendorEmail: { type: 'string', format: 'email', description: 'Recipient vendor email address' },
-                        subject: { type: 'string', description: 'Email subject (Peppermint will prepend [REQ-xxx])' },
-                        body: { type: 'string', description: 'Email body content' }
+                        subject: { type: 'string', minLength: 1, description: 'Email subject (Peppermint will prepend [REQ-xxx])' },
+                        body: { type: 'string', minLength: 1, description: 'Email body content' }
                     }
                 },
                 response: {
@@ -50,27 +44,15 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
                         }
                     }
                 }
+                // Note: 'as any' is required because Fastify's base FastifySchema type
+                // doesn't include Swagger-specific properties (description, tags, response).
+                // This is the standard pattern when using @fastify/swagger.
             } as any
         },
 
-
         async (request, reply) => {
+            // Schema validation ensures all fields are present and valid
             const { ticketId, vendorEmail, subject, body } = request.body;
-
-            // Input validation
-            if (!ticketId || !vendorEmail || !subject || !body) {
-                return reply.status(400).send({
-                    success: false,
-                    message: "Missing required fields: ticketId, vendorEmail, subject, body",
-                });
-            }
-
-            if (!isValidEmail(vendorEmail)) {
-                return reply.status(400).send({
-                    success: false,
-                    message: "Invalid vendor email format",
-                });
-            }
 
             try {
                 // Get authenticated user
@@ -111,28 +93,41 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
                     isVendorEmail: true, // Triggers [REQ-xxx] prefix
                 });
 
-                // Create comment on ticket to track the sent email
-                await prisma.comment.create({
-                    data: {
-                        text: body,
-                        public: true,
-                        ticketId: ticket.id,
-                        userId: user.id,
-                        senderRole: "agent", // Authenticated user = agent
-                    },
-                });
-
-                // Store Message-ID for reply threading
-                if (sentMessageId) {
-                    const updatedExternalIds = [
-                        ...new Set([...(ticket.externalIds || []), sentMessageId]),
-                    ];
-
-                    await prisma.ticket.update({
-                        where: { id: ticket.id },
-                        data: { externalIds: updatedExternalIds },
+                // Use transaction for atomicity: comment + externalIds update
+                // This prevents race conditions when multiple vendor emails are sent concurrently
+                await prisma.$transaction(async (tx) => {
+                    // Create comment to track the sent email
+                    // Note: public: false for outbound vendor emails (agent-initiated, may contain internal context)
+                    // This differs from inbound emails which use public: true
+                    await tx.comment.create({
+                        data: {
+                            text: body,
+                            public: false,
+                            ticketId: ticket.id,
+                            userId: user.id,
+                            senderRole: "agent",
+                            replyEmail: vendorEmail, // Store recipient for audit trail
+                        },
                     });
-                }
+
+                    // Store Message-ID for reply threading
+                    if (sentMessageId) {
+                        // Re-fetch within transaction to avoid stale data (concurrency-safe)
+                        const current = await tx.ticket.findUnique({
+                            where: { id: ticket.id },
+                            select: { externalIds: true },
+                        });
+
+                        const updatedExternalIds = [
+                            ...new Set([...(current?.externalIds || []), sentMessageId]),
+                        ];
+
+                        await tx.ticket.update({
+                            where: { id: ticket.id },
+                            data: { externalIds: updatedExternalIds },
+                        });
+                    }
+                });
 
                 return reply.send({
                     success: true,
