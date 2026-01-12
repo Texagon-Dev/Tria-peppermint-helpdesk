@@ -294,11 +294,12 @@ export class ImapService {
 
   /**
    * Extract [REQ-xxx] reference from subject line
-   * Format: [REQ-abc12345] where abc12345 is first 8 chars of ticket ID
+   * Format: [REQ-abc12345] where abc12345 is first 8 chars of ticket ID (hex)
    */
   private static extractRequestReference(subject: string): string | null {
-    const match = subject.match(/\[REQ-([a-zA-Z0-9]+)\]/i);
-    return match ? match[1] : null;
+    // Require exactly 8 hex characters to avoid false matches
+    const match = subject.match(/\[REQ-([a-f0-9]{8})\]/i);
+    return match?.[1] ?? null;
   }
 
   /**
