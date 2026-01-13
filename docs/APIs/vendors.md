@@ -12,6 +12,7 @@ API endpoints for managing vendors in the helpdesk system.
 - [Delete Vendor](#delete-vendor)
 - [Bulk Delete Vendors](#bulk-delete-vendors)
 - [Get Vendors by Category](#get-vendors-by-category)
+- [Export Vendors](#export-vendors)
 - [Upload Vendors CSV](#upload-vendors-csv)
 
 ---
@@ -27,6 +28,7 @@ API endpoints for managing vendors in the helpdesk system.
 | DELETE | `/api/v1/vendors/:id/delete` | Delete a vendor |
 | POST | `/api/v1/vendors/bulk-delete` | Delete multiple vendors |
 | GET | `/api/v1/vendors/category/:category` | Get vendors by category name |
+| GET | `/api/v1/vendors/export` | Export vendors to CSV |
 | POST | `/api/v1/vendors/upload` | Upload vendors from CSV |
 
 ---
@@ -36,7 +38,7 @@ API endpoints for managing vendors in the helpdesk system.
 Create a new vendor in the system.
 
 **Endpoint:** `POST /api/v1/vendor/create`  
-**Auth:** Admin only
+**Auth:** Admin only (Bearer Token or API Key)
 
 ### Request Body
 
@@ -59,16 +61,20 @@ Create a new vendor in the system.
 ### cURL Example
 
 ```bash
+# Using Bearer Token
 curl -X POST http://localhost:3000/api/v1/vendor/create \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
-  -d '{
-    "name": "ABC Plumbing Co.",
-    "email": "contact@abcplumbing.com",
-    "categoryId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "description": "Professional plumbing services"
-  }'
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{ ... }'
+
+# OR Using API Key
+curl -X POST http://localhost:3000/api/v1/vendor/create \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{ ... }'
 ```
+
+
 
 ### Response Example
 
@@ -95,7 +101,7 @@ curl -X POST http://localhost:3000/api/v1/vendor/create \
 Update an existing vendor's information.
 
 **Endpoint:** `POST /api/v1/vendor/update`  
-**Auth:** Admin only
+**Auth:** Admin only (Bearer Token or API Key)
 
 ### Request Body
 
@@ -122,7 +128,7 @@ Update an existing vendor's information.
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendor/update \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "id": "v1w2x3y4-z5a6-7890-vend-or1234567890",
     "name": "ABC Plumbing & Heating",
@@ -161,7 +167,7 @@ Retrieve all vendors with their category information.
 
 ```bash
 curl -X GET http://localhost:3000/api/v1/vendors/all \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
@@ -203,7 +209,7 @@ Retrieve a single vendor by ID.
 
 ```bash
 curl -X GET http://localhost:3000/api/v1/vendor/v1w2x3y4-z5a6-7890-vend-or1234567890 \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
@@ -243,7 +249,7 @@ Delete a single vendor by ID.
 
 ```bash
 curl -X DELETE http://localhost:3000/api/v1/vendors/v1w2x3y4-z5a6-7890-vend-or1234567890/delete \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
@@ -261,7 +267,7 @@ curl -X DELETE http://localhost:3000/api/v1/vendors/v1w2x3y4-z5a6-7890-vend-or12
 Delete multiple vendors at once.
 
 **Endpoint:** `POST /api/v1/vendors/bulk-delete`  
-**Auth:** Admin only
+**Auth:** Admin only (Bearer Token or API Key)
 
 ### Request Body
 
@@ -280,7 +286,7 @@ Delete multiple vendors at once.
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendors/bulk-delete \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "ids": ["vendor-uuid-1", "vendor-uuid-2"]
   }'
@@ -338,6 +344,37 @@ curl -X GET http://localhost:3000/api/v1/vendors/category/Plumbing
 
 ---
 
+## Export Vendors
+
+Export all vendors to a CSV file. The category field will contain the category name (not the UUID).
+
+**Endpoint:** `GET /api/v1/vendors/export`  
+**Auth:** Admin only (Bearer Token or API Key)
+
+### cURL Example
+
+```bash
+# Using Bearer Token
+curl -X GET http://localhost:3000/api/v1/vendors/export \
+  -H "Authorization: Bearer YOUR_TOKEN" > vendors.csv
+
+# OR Using API Key
+curl -X GET http://localhost:3000/api/v1/vendors/export \
+  -H "X-API-Key: YOUR_API_KEY" > vendors.csv
+```
+
+### Response
+
+Returns a CSV file with the following format:
+
+```csv
+name,email,category,description
+ABC Plumbing Co.,contact@abc.com,Plumbing,Professional plumbing services
+XYZ Electric,info@xyz.com,Electrical,24/7 electrician
+```
+
+---
+
 ## Upload Vendors CSV
 
 Bulk import vendors from a CSV file.
@@ -354,11 +391,13 @@ ABC Plumbing,contact@abc.com,Plumbing,Professional services
 XYZ Electric,info@xyz.com,Electrical,24/7 electrician
 ```
 
+**Note:** The `category` column should contain the category name (e.g., "Plumbing"). If the category does not exist, it will be automatically created.
+
 ### cURL Example
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendors/upload \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@vendors.csv"
 ```
 
