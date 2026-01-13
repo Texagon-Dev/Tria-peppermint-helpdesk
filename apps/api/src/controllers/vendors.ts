@@ -342,7 +342,8 @@ export function vendorRoutes(fastify: FastifyInstance) {
                                         }
                                     } else {
                                         totalErrors++;
-                                        if (errors.length < 50) errors.push({ email, error: `Category creation error: ${err.message}` });
+                                        if (errors.length < 50) errors.push({ email, error: `An unexpected error occurred while creating category '${normalizedCategoryName}'.` });
+                                        console.error(`Category creation error for ${email}:`, err.message);
                                         continue;
                                     }
                                 }
