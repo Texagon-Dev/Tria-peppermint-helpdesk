@@ -26,12 +26,12 @@ API endpoints for managing vendor categories in the helpdesk system.
 Retrieve all vendor categories.
 
 **Endpoint:** `GET /api/v1/vendor-categories`  
-**Auth:** Admin only (Session or API Key)
+**Auth:** Admin only (Bearer Token or API Key)
 
 ### cURL Example
 
 ```bash
-# Using Session Token
+# Using Bearer Token
 curl -X GET http://localhost:3000/api/v1/vendor-categories \
   -H "Authorization: Bearer YOUR_TOKEN"
 
