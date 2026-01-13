@@ -62,7 +62,7 @@ Create a new vendor in the system.
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendor/create \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "name": "ABC Plumbing Co.",
     "email": "contact@abcplumbing.com",
@@ -123,7 +123,7 @@ Update an existing vendor's information.
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendor/update \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "id": "v1w2x3y4-z5a6-7890-vend-or1234567890",
     "name": "ABC Plumbing & Heating",
@@ -162,7 +162,7 @@ Retrieve all vendors with their category information.
 
 ```bash
 curl -X GET http://localhost:3000/api/v1/vendors/all \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
@@ -204,7 +204,7 @@ Retrieve a single vendor by ID.
 
 ```bash
 curl -X GET http://localhost:3000/api/v1/vendor/v1w2x3y4-z5a6-7890-vend-or1234567890 \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
@@ -244,7 +244,7 @@ Delete a single vendor by ID.
 
 ```bash
 curl -X DELETE http://localhost:3000/api/v1/vendors/v1w2x3y4-z5a6-7890-vend-or1234567890/delete \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
@@ -281,7 +281,7 @@ Delete multiple vendors at once.
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendors/bulk-delete \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "ids": ["vendor-uuid-1", "vendor-uuid-2"]
   }'
@@ -350,7 +350,7 @@ Export all vendors to a CSV file. The category field will contain the category n
 
 ```bash
 curl -X GET http://localhost:3000/api/v1/vendors/export \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" > vendors.csv
+  -H "Authorization: Bearer YOUR_TOKEN" > vendors.csv
 ```
 
 ### Response
@@ -382,7 +382,7 @@ XYZ Electric,info@xyz.com,Electrical,24/7 electrician
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendors/upload \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@vendors.csv"
 ```
 

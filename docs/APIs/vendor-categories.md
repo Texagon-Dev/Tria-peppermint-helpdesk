@@ -32,7 +32,7 @@ Retrieve all vendor categories.
 
 ```bash
 curl -X GET http://localhost:3000/api/v1/vendor-categories \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
@@ -89,7 +89,7 @@ Create a new vendor category.
 ```bash
 curl -X POST http://localhost:3000/api/v1/vendor-category/create \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=YOUR_SESSION_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "name": "Landscaping"
   }'
@@ -139,7 +139,7 @@ Delete a vendor category. Cannot delete if vendors are using the category.
 
 ```bash
 curl -X DELETE http://localhost:3000/api/v1/vendor-category/d4e5f6g7-h8i9-0123-defg-234567890123/delete \
-  -H "Cookie: session=YOUR_SESSION_TOKEN"
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Response Example
