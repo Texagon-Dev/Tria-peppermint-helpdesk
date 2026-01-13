@@ -12,6 +12,7 @@ API endpoints for managing vendors in the helpdesk system.
 - [Delete Vendor](#delete-vendor)
 - [Bulk Delete Vendors](#bulk-delete-vendors)
 - [Get Vendors by Category](#get-vendors-by-category)
+- [Export Vendors](#export-vendors)
 - [Upload Vendors CSV](#upload-vendors-csv)
 
 ---
@@ -345,22 +346,32 @@ curl -X GET http://localhost:3000/api/v1/vendors/category/Plumbing
 
 ## Export Vendors
 
-Export all vendors to a CSV file. The category field will contain the category name.
+Export all vendors to a CSV file. The category field will contain the category name (not the UUID).
 
 **Endpoint:** `GET /api/v1/vendors/export`  
-**Auth:** Admin only
+**Auth:** Admin only (Session or API Key)
 
 ### cURL Example
 
 ```bash
+# Using Session Token
 curl -X GET http://localhost:3000/api/v1/vendors/export \
   -H "Authorization: Bearer YOUR_TOKEN" > vendors.csv
+
+# OR Using API Key
+curl -X GET http://localhost:3000/api/v1/vendors/export \
+  -H "X-API-Key: YOUR_API_KEY" > vendors.csv
 ```
 
 ### Response
 
-Returns a CSV file with the following headers:
-`name,email,category,description`
+Returns a CSV file with the following format:
+
+```csv
+name,email,category,description
+ABC Plumbing Co.,contact@abc.com,Plumbing,Professional plumbing services
+XYZ Electric,info@xyz.com,Electrical,24/7 electrician
+```
 
 ---
 

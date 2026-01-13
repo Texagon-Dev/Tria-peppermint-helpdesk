@@ -241,19 +241,16 @@ export function vendorRoutes(fastify: FastifyInstance) {
                 return stringField;
             };
 
-            // Use streaming for memory efficiency with large datasets
-            const { Readable } = require("stream");
-            const readable = Readable.from((async function* () {
-                yield "name,email,category,description\n";
-                for (const v of vendors) {
-                    yield `${escapeCSV(v.name)},${escapeCSV(v.email)},${escapeCSV(v.category?.name)},${escapeCSV(v.description)}\n`;
-                }
-            })());
+            // Build CSV content
+            const csvHeader = "name,email,category,description\n";
+            const csvRows = vendors.map(v =>
+                `${escapeCSV(v.name)},${escapeCSV(v.email)},${escapeCSV(v.category?.name)},${escapeCSV(v.description)}`
+            ).join("\n");
 
             reply
-                .header("Content-Type", "text/csv")
+                .header("Content-Type", "text/csv; charset=utf-8")
                 .header("Content-Disposition", "attachment; filename=vendors.csv")
-                .send(readable);
+                .send(csvHeader + csvRows);
         }
     );
 
