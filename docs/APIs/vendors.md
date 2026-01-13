@@ -37,7 +37,7 @@ API endpoints for managing vendors in the helpdesk system.
 Create a new vendor in the system.
 
 **Endpoint:** `POST /api/v1/vendor/create`  
-**Auth:** Admin only
+**Auth:** Admin only (Session or API Key)
 
 ### Request Body
 
@@ -60,16 +60,20 @@ Create a new vendor in the system.
 ### cURL Example
 
 ```bash
+# Using Session Token
 curl -X POST http://localhost:3000/api/v1/vendor/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "name": "ABC Plumbing Co.",
-    "email": "contact@abcplumbing.com",
-    "categoryId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "description": "Professional plumbing services"
-  }'
+  -d '{ ... }'
+
+# OR Using API Key
+curl -X POST http://localhost:3000/api/v1/vendor/create \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{ ... }'
 ```
+
+
 
 ### Response Example
 
@@ -96,7 +100,7 @@ curl -X POST http://localhost:3000/api/v1/vendor/create \
 Update an existing vendor's information.
 
 **Endpoint:** `POST /api/v1/vendor/update`  
-**Auth:** Admin only
+**Auth:** Admin only (Session or API Key)
 
 ### Request Body
 
@@ -262,7 +266,7 @@ curl -X DELETE http://localhost:3000/api/v1/vendors/v1w2x3y4-z5a6-7890-vend-or12
 Delete multiple vendors at once.
 
 **Endpoint:** `POST /api/v1/vendors/bulk-delete`  
-**Auth:** Admin only
+**Auth:** Admin only (Session or API Key)
 
 ### Request Body
 
