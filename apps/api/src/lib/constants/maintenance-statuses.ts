@@ -76,6 +76,13 @@ export const MAINTENANCE_STATUSES = {
 
 export type MaintenanceStatusValue = keyof typeof MAINTENANCE_STATUSES;
 
+/**
+ * Type guard to validate if a value is a valid MaintenanceStatusValue
+ */
+export function isMaintenanceStatusValue(status: unknown): status is MaintenanceStatusValue {
+    return typeof status === 'string' && status in MAINTENANCE_STATUSES;
+}
+
 export interface MaintenanceStatusInfo {
     order: number;
     value: string;
