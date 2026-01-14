@@ -58,6 +58,5 @@ export interface IMaintenanceStatusParams {
 
 export interface IUpdateMaintenanceStatusBody {
     status: string;
-    vendorEmail?: string;
-    vendorName?: string;
+    vendorEmail?: string;  // Email of selected vendor (stored in ticket.metadata)
 }
