@@ -25,6 +25,7 @@ import {
   getAllMaintenanceStatuses,
   getMaintenanceStatusInfo,
   isValidTransition,
+  isMaintenanceStatusValue,
   MaintenanceStatusValue,
 } from "../lib/constants/maintenance-statuses";
 import { prisma } from "../prisma";
@@ -320,7 +321,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         ? getMaintenanceStatusInfo(ticket.maintenanceStatus as MaintenanceStatusValue)
         : null;
 
-      var t = {
+      const t = {
         ...ticket,
         maintenanceStatusInfo,
         comments: [...comments],
@@ -1183,20 +1184,20 @@ export function ticketRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { status } = request.body;
+      const { status, vendorEmail } = request.body;
 
       // Validate status is a valid MaintenanceStatus value
-      if (!MAINTENANCE_STATUSES[status as MaintenanceStatusValue]) {
+      if (!isMaintenanceStatusValue(status)) {
         return reply.status(400).send({
           success: false,
           error: `Invalid status: ${status}. Valid statuses are: ${Object.keys(MAINTENANCE_STATUSES).join(", ")}`,
         });
       }
 
-      // Get current ticket
+      // Get current ticket (include metadata to preserve existing values)
       const ticket = await prisma.ticket.findUnique({
         where: { id },
-        select: { id: true, maintenanceStatus: true },
+        select: { id: true, maintenanceStatus: true, metadata: true },
       });
 
       if (!ticket) {
@@ -1207,23 +1208,30 @@ export function ticketRoutes(fastify: FastifyInstance) {
       }
 
       const currentStatus = ticket.maintenanceStatus as MaintenanceStatusValue | null;
-      const newStatus = status as MaintenanceStatusValue;
+      const newStatus = status;
 
       // Validate transition
       if (!isValidTransition(currentStatus, newStatus)) {
         const currentInfo = currentStatus ? MAINTENANCE_STATUSES[currentStatus] : null;
-        const validNextStatuses = currentInfo?.nextStatuses || Object.keys(MAINTENANCE_STATUSES);
+        const validNextStatuses = currentInfo!.nextStatuses;
         return reply.status(400).send({
           success: false,
           error: `Invalid transition from '${currentStatus || "null"}' to '${newStatus}'. Valid next statuses are: ${validNextStatuses.join(", ")}`,
         });
       }
 
+      // Build metadata update (preserve existing, add/update selectedVendorEmail if provided)
+      const existingMetadata = (ticket.metadata || {}) as Record<string, unknown>;
+      const updatedMetadata = vendorEmail
+        ? { ...existingMetadata, selectedVendorEmail: vendorEmail }
+        : existingMetadata;
+
       // Update the ticket
       await prisma.ticket.update({
         where: { id },
         data: {
           maintenanceStatus: newStatus,
+          metadata: updatedMetadata as any, // Prisma Json type
         },
       });
 
