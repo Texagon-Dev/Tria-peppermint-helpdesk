@@ -19,7 +19,14 @@ import {
 import { sendWebhookNotification } from "../lib/notifications/webhook";
 import { requirePermission } from "../lib/roles";
 import { checkSession } from "../lib/session";
-import { ICommentBody } from "../lib/types/request";
+import { ICommentBody, IMaintenanceStatusParams, IUpdateMaintenanceStatusBody } from "../lib/types/request";
+import {
+  MAINTENANCE_STATUSES,
+  getAllMaintenanceStatuses,
+  getMaintenanceStatusInfo,
+  isValidTransition,
+  MaintenanceStatusValue,
+} from "../lib/constants/maintenance-statuses";
 import { prisma } from "../prisma";
 
 const validateEmail = (email: string) => {
@@ -308,8 +315,14 @@ export function ticketRoutes(fastify: FastifyInstance) {
         },
       });
 
+      // Get maintenance status info if applicable
+      const maintenanceStatusInfo = ticket.maintenanceStatus
+        ? getMaintenanceStatusInfo(ticket.maintenanceStatus as MaintenanceStatusValue)
+        : null;
+
       var t = {
         ...ticket,
+        maintenanceStatusInfo,
         comments: [...comments],
         TimeTracking: [...timeTracking],
         files: [...files],
@@ -1140,6 +1153,88 @@ export function ticketRoutes(fastify: FastifyInstance) {
           success: true,
         });
       }
+    }
+  );
+
+  // ===============================
+  // MAINTENANCE STATUS ENDPOINTS
+  // ===============================
+
+  // Get all maintenance statuses with descriptions (for AI agent and UI)
+  fastify.get(
+    "/api/v1/maintenance-statuses",
+    {
+      preHandler: requirePermission(["issue::read"]),
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const statuses = getAllMaintenanceStatuses();
+      reply.send({
+        success: true,
+        statuses,
+      });
+    }
+  );
+
+  // Update a ticket's maintenance status
+  fastify.patch<{ Params: IMaintenanceStatusParams; Body: IUpdateMaintenanceStatusBody }>(
+    "/api/v1/ticket/:id/maintenance-status",
+    {
+      preHandler: requirePermission(["issue::update"]),
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { status } = request.body;
+
+      // Validate status is a valid MaintenanceStatus value
+      if (!MAINTENANCE_STATUSES[status as MaintenanceStatusValue]) {
+        return reply.status(400).send({
+          success: false,
+          error: `Invalid status: ${status}. Valid statuses are: ${Object.keys(MAINTENANCE_STATUSES).join(", ")}`,
+        });
+      }
+
+      // Get current ticket
+      const ticket = await prisma.ticket.findUnique({
+        where: { id },
+        select: { id: true, maintenanceStatus: true },
+      });
+
+      if (!ticket) {
+        return reply.status(404).send({
+          success: false,
+          error: "Ticket not found",
+        });
+      }
+
+      const currentStatus = ticket.maintenanceStatus as MaintenanceStatusValue | null;
+      const newStatus = status as MaintenanceStatusValue;
+
+      // Validate transition
+      if (!isValidTransition(currentStatus, newStatus)) {
+        const currentInfo = currentStatus ? MAINTENANCE_STATUSES[currentStatus] : null;
+        const validNextStatuses = currentInfo?.nextStatuses || Object.keys(MAINTENANCE_STATUSES);
+        return reply.status(400).send({
+          success: false,
+          error: `Invalid transition from '${currentStatus || "null"}' to '${newStatus}'. Valid next statuses are: ${validNextStatuses.join(", ")}`,
+        });
+      }
+
+      // Update the ticket
+      await prisma.ticket.update({
+        where: { id },
+        data: {
+          maintenanceStatus: newStatus,
+        },
+      });
+
+      const statusInfo = getMaintenanceStatusInfo(newStatus);
+
+      reply.send({
+        success: true,
+        previousStatus: currentStatus,
+        currentStatus: newStatus,
+        statusInfo,
+      });
     }
   );
 }
