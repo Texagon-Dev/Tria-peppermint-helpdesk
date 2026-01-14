@@ -9,6 +9,7 @@ API endpoints for managing vendors in the helpdesk system.
 - [Update Vendor](#update-vendor)
 - [Get All Vendors](#get-all-vendors)
 - [Get Single Vendor](#get-single-vendor)
+- [Get Vendor by Email](#get-vendor-by-email)
 - [Delete Vendor](#delete-vendor)
 - [Bulk Delete Vendors](#bulk-delete-vendors)
 - [Get Vendors by Category](#get-vendors-by-category)
@@ -25,6 +26,7 @@ API endpoints for managing vendors in the helpdesk system.
 | POST | `/api/v1/vendor/update` | Update an existing vendor |
 | GET | `/api/v1/vendors/all` | Get all vendors |
 | GET | `/api/v1/vendor/:id` | Get a single vendor by ID |
+| GET | `/api/v1/vendor/email/:email` | Get vendor by email (for AI agent) |
 | DELETE | `/api/v1/vendors/:id/delete` | Delete a vendor |
 | POST | `/api/v1/vendors/bulk-delete` | Delete multiple vendors |
 | GET | `/api/v1/vendors/category/:category` | Get vendors by category name |
@@ -233,6 +235,54 @@ curl -X GET http://localhost:3000/api/v1/vendor/v1w2x3y4-z5a6-7890-vend-or123456
       "updatedAt": "2026-01-12T09:00:00.000Z"
     }
   }
+}
+```
+
+---
+
+## Get Vendor by Email
+
+Retrieve a vendor by their email address. Useful for AI agents to look up vendor details using the email stored in ticket metadata.
+
+**Endpoint:** `GET /api/v1/vendor/email/:email`  
+**Auth:** API Key or User Session
+
+### cURL Example
+
+```bash
+curl -X GET "http://localhost:3000/api/v1/vendor/email/contact@abcplumbing.com" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Response Example
+
+```json
+{
+  "success": true,
+  "vendor": {
+    "id": "v1w2x3y4-z5a6-7890-vend-or1234567890",
+    "name": "ABC Plumbing Co.",
+    "email": "contact@abcplumbing.com",
+    "categoryId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "description": "Professional plumbing services",
+    "active": true,
+    "createdAt": "2026-01-12T10:00:00.000Z",
+    "updatedAt": "2026-01-12T10:00:00.000Z",
+    "category": {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Plumbing",
+      "createdAt": "2026-01-12T09:00:00.000Z",
+      "updatedAt": "2026-01-12T09:00:00.000Z"
+    }
+  }
+}
+```
+
+**Error Response (404):**
+```json
+{
+  "success": false,
+  "error": "Vendor not found"
 }
 ```
 
