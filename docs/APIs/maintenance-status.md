@@ -78,6 +78,7 @@ Update the maintenance status of a specific ticket. The transition must be valid
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | status | string | Yes | The new maintenance status value (must be a valid transition) |
+| vendorEmail | string | No | Email of selected vendor (stored in ticket.metadata.selectedVendorEmail) |
 
 ### cURL Example
 
