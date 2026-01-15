@@ -141,6 +141,27 @@ export function vendorRoutes(fastify: FastifyInstance) {
         }
     );
 
+    // Get vendor by email (for AI agent)
+    fastify.get<{ Params: { email: string } }>(
+        "/api/v1/vendor/email/:email",
+        async (request, reply) => {
+            const { email } = request.params;
+
+            const vendor = await prisma.vendor.findUnique({
+                where: { email },
+                include: {
+                    category: true,
+                },
+            });
+
+            if (!vendor) {
+                return reply.status(404).send({ success: false, error: "Vendor not found" });
+            }
+
+            reply.send({ success: true, vendor });
+        }
+    );
+
     // Delete vendor (admin only)
     fastify.delete<{ Params: IVendorIdParams }>(
         "/api/v1/vendors/:id/delete",

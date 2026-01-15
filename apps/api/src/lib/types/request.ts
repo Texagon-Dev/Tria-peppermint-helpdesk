@@ -51,3 +51,12 @@ export interface IVendorEmailBody {
     body: string;
 }
 
+// Maintenance Status request types
+export interface IMaintenanceStatusParams {
+    id: string;
+}
+
+export interface IUpdateMaintenanceStatusBody {
+    status: string;
+    vendorEmail?: string;  // Email of selected vendor (stored in ticket.metadata)
+}

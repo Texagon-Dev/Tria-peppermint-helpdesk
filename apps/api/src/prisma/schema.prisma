@@ -141,6 +141,8 @@ model Ticket {
   locked     Boolean      @default(false)
   following  Json?
 
+  maintenanceStatus MaintenanceStatus? // Maintenance workflow state (null for non-maintenance)
+
   // Thread Matching Fields
   threadId     String?  @unique // Gmail X-GM-THRID or root Message-ID
   externalIds  String[] // All Message-IDs associated with this ticket
@@ -470,6 +472,19 @@ enum TicketType {
   maintenance
   access
   feedback
+}
+
+enum MaintenanceStatus {
+  pending
+  quote_sent_to_vendor
+  vendor_quote_received
+  awaiting_customer_approval
+  customer_approved
+  appointment_request_sent
+  vendor_confirmed_appointment
+  customer_notified_of_appointment
+  work_completed
+  cancelled
 }
 
 enum Template {
