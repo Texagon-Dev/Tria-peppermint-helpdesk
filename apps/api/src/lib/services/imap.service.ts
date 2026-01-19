@@ -403,7 +403,7 @@ export class ImapService {
           const replyText = getReplyText({ text: text || "No Body" });
 
           // Use transaction for atomicity: comment + externalIds update
-          const comment = await prisma.$transaction(async (tx) => {
+          const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
             // Create the comment
             const createdComment = await tx.comment.create({
               data: {
@@ -420,20 +420,28 @@ export class ImapService {
             });
 
             // Update externalIds atomically (re-fetch within transaction to avoid stale data)
+            let updatedExternalIds = [];
             if (normalizedMessageId) {
               const current = await tx.ticket.findUnique({
                 where: { id: ticket.id },
                 select: { externalIds: true },
               });
 
-              const externalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
+              updatedExternalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
               await tx.ticket.update({
                 where: { id: ticket.id },
-                data: { externalIds },
+                data: { externalIds: updatedExternalIds },
               });
+            } else {
+              // If no new messageId, fetch current state
+              const current = await tx.ticket.findUnique({
+                where: { id: ticket.id },
+                select: { externalIds: true }
+              });
+              updatedExternalIds = current?.externalIds ?? [];
             }
 
-            return createdComment;
+            return { comment: createdComment, currentExternalIds: updatedExternalIds };
           });
 
           logger.info(
@@ -442,12 +450,6 @@ export class ImapService {
           );
 
           // Trigger webhooks after transaction commits (outside transaction)
-          // Re-fetch ticket to get updated externalIds for webhook payload
-          const updatedTicket = await prisma.ticket.findUnique({
-            where: { id: ticket.id },
-            select: { externalIds: true },
-          });
-
           const replyWebhooks = await prisma.webhooks.findMany({
             where: { type: "customer_reply_received", active: true },
           });
@@ -465,7 +467,7 @@ export class ImapService {
                 isCustomer: false,
                 isVendor: true,
                 fromImap: true,
-                externalIds: updatedTicket?.externalIds ?? [],
+                externalIds: currentExternalIds,
               };
               logger.info(
                 { url: webhook.url },
