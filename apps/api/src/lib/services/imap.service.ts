@@ -442,6 +442,12 @@ export class ImapService {
           );
 
           // Trigger webhooks after transaction commits (outside transaction)
+          // Re-fetch ticket to get updated externalIds for webhook payload
+          const updatedTicket = await prisma.ticket.findUnique({
+            where: { id: ticket.id },
+            select: { externalIds: true },
+          });
+
           const replyWebhooks = await prisma.webhooks.findMany({
             where: { type: "customer_reply_received", active: true },
           });
@@ -459,6 +465,7 @@ export class ImapService {
                 isCustomer: false,
                 isVendor: true,
                 fromImap: true,
+                externalIds: updatedTicket?.externalIds ?? [],
               };
               logger.info(
                 { url: webhook.url },
