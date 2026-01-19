@@ -29,7 +29,8 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
                         ticketId: { type: 'string', minLength: 1 },
                         vendorEmail: { type: 'string', format: 'email' },
                         subject: { type: 'string', minLength: 1 },
-                        body: { type: 'string', minLength: 1 }
+                        body: { type: 'string', minLength: 1 },
+                        messageId: { type: 'string' }
                     }
                 }
             }
@@ -37,7 +38,7 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
 
         async (request, reply) => {
             // Schema validation ensures all fields are present and valid
-            const { ticketId, vendorEmail, subject, body } = request.body;
+            const { ticketId, vendorEmail, subject, body, messageId } = request.body;
 
             try {
                 // Get authenticated user
@@ -73,7 +74,7 @@ export function vendorEmailRoutes(fastify: FastifyInstance) {
                     ticketId: ticket.id,
                     email: vendorEmail,
                     originalSubject: subject,
-                    inReplyTo: undefined,
+                    inReplyTo: messageId,
                     references: ticket.externalIds || [],
                     isVendorEmail: true, // Triggers [REQ-xxx] prefix
                 });

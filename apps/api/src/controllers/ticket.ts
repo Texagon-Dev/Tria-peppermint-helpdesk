@@ -1211,7 +1211,8 @@ export function ticketRoutes(fastify: FastifyInstance) {
       const newStatus = status;
 
       // Validate transition
-      if (!isValidTransition(currentStatus, newStatus)) {
+      // Allow transition if it's the same status (idempotency)
+      if (currentStatus !== newStatus && !isValidTransition(currentStatus, newStatus)) {
         const currentInfo = currentStatus ? MAINTENANCE_STATUSES[currentStatus] : null;
         const validNextStatuses = currentInfo!.nextStatuses;
         return reply.status(400).send({
