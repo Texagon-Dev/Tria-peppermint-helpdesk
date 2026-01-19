@@ -49,6 +49,7 @@ export interface IVendorEmailBody {
     vendorEmail: string;
     subject: string;
     body: string;
+    messageId?: string;
 }
 
 // Maintenance Status request types
