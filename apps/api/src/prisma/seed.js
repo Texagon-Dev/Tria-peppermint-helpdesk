@@ -74,9 +74,8 @@ async function main() {
                     <table style="margin-top:8px" align="center" border="0" cellPadding="0" cellSpacing="0" role="presentation" width="100%">
                     </table>
                     <h1 style="color:#1d1c1d;font-size:16px;font-weight:700;margin:10px 0;padding:0;line-height:42px">Ticket Assigned</h1>
-                    <p style="font-size:20px;line-height:28px;margin:4px 0">
-                    <p>Hello, <br>A new ticket has been assigned to you.</p>
-                    <p style="font-size:14px;margin:16px 0;color:#000"> 
+                    <p style="font-size:20px;line-height:28px;margin:4px 0">Ticket Assigned</p>
+                    <p>Hello, <br>A new ticket has been assigned to you.</p> 
                   </td>
                 </tr>
               </table>
@@ -104,7 +103,7 @@ async function main() {
                     <div style="font-size:14px;line-height:1.6;margin:4px 0;color:#333">
                     {{{comment}}}
                     </div>
-                    <p style="font-size:14px;margin:16px 0;color:#000"> 
+                    </div> 
                   </td>
                 </tr>
               </table>
@@ -129,9 +128,8 @@ async function main() {
                     <table style="margin-top:8px" align="center" border="0" cellPadding="0" cellSpacing="0" role="presentation" width="100%">
                     </table>
                     <h1 style="color:#1d1c1d;font-size:16px;font-weight:700;margin:10px 0;padding:0;line-height:42px">Ticket Created: {{id}}</h1>
-                    <p style="font-size:20px;line-height:28px;margin:4px 0">
-                    <p>Hello, <br>Your ticket has now been created and logged.</p>
-                    <p style="font-size:14px;margin:16px 0;color:#000"> 
+                    <p style="font-size:20px;line-height:28px;margin:4px 0">Ticket Logged</p>
+                    <p>Hello, <br>Your ticket has now been created and logged.</p> 
                   </td>
                 </tr>
               </table>
@@ -162,9 +160,9 @@ async function main() {
                       </tbody>
                     </table>
                     <h1 style="color:#1d1c1d;font-size:16px;font-weight:700;margin:10px 0;padding:0;line-height:42px">Ticket: {{title}}</h1>
-                    <p style="font-size:20px;line-height:28px;margin:4px 0">
+                    <div style="font-size:20px;line-height:28px;margin:4px 0">
                     <p>Your Ticket, now has a status of {{status}}</p>
-                    </p>
+                    </div>
                   </td>
                 </tr>
               </table>
