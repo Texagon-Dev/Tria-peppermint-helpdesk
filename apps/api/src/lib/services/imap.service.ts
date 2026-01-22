@@ -348,8 +348,12 @@ export class ImapService {
     ticket = await this.matchByMessageIdChain(headers);
     if (ticket) return ticket;
 
-    // Layer 3: Heuristics - Subject + Sender (Medium accuracy, fallback only)
-    ticket = await this.matchByHeuristics(from, subject);
+    // Layer 3 DISABLED: Subject-based matching is unreliable and can incorrectly merge
+    // unrelated tickets that happen to have similar subject lines (e.g., two different
+    // "Broken Lock" issues from the same sender). If an email lacks proper threading
+    // headers (Layer 1/2), it's safer to create a new ticket.
+    // ticket = await this.matchByHeuristics(from, subject);
+
     return ticket;
   }
 
