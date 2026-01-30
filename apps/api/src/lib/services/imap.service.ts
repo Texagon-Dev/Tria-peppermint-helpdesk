@@ -1,6 +1,7 @@
 import EmailReplyParser from "email-reply-parser";
 import Imap from "imap";
-import { simpleParser, ParsedMail, Headers } from "mailparser";
+import { simpleParser, ParsedMail, Headers, Attachment } from "mailparser";
+import pdf from "pdf-parse";
 import { prisma } from "../../prisma";
 import { EmailConfig, EmailQueue } from "../types/email";
 import { AuthService } from "./auth.service";
@@ -24,6 +25,9 @@ const logger = pino({
     },
   },
 });
+
+/** Maximum PDF file size to attempt text extraction (10 MB) */
+const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;
 
 /**
  * Safely convert a header value to string, handling BigInt and other types
@@ -60,6 +64,69 @@ function getReplyText(email: any): string {
   });
 
   return replyText;
+}
+
+/**
+ * Extract text content from PDF attachments in an email.
+ * Processes each PDF sequentially to limit memory usage.
+ * Returns the concatenated text from all PDFs, or empty string if none found.
+ */
+async function extractPdfText(attachments: Attachment[]): Promise<string> {
+  const pdfAttachments = attachments.filter(
+    (att) => att.contentType === "application/pdf"
+  );
+
+  if (pdfAttachments.length === 0) {
+    return "";
+  }
+
+  const extractedParts: string[] = [];
+
+  for (const att of pdfAttachments) {
+    const filename = att.filename || "unnamed.pdf";
+    const sizeBytes = att.content.length;
+
+    if (sizeBytes > MAX_PDF_SIZE_BYTES) {
+      logger.warn(
+        { filename, sizeBytes, maxBytes: MAX_PDF_SIZE_BYTES },
+        "Skipping PDF extraction: file exceeds size limit"
+      );
+      extractedParts.push(
+        `\n\n--- PDF: ${filename} (skipped: ${(sizeBytes / 1024 / 1024).toFixed(1)} MB exceeds limit) ---`
+      );
+      continue;
+    }
+
+    try {
+      logger.info({ filename, sizeBytes }, "Extracting text from PDF attachment");
+      const result = await pdf(att.content);
+      const text = result.text?.trim();
+
+      if (text) {
+        extractedParts.push(`\n\n--- PDF: ${filename} ---\n${text}`);
+        logger.info(
+          { filename, extractedLength: text.length },
+          "PDF text extraction successful"
+        );
+      } else {
+        extractedParts.push(
+          `\n\n--- PDF: ${filename} (no extractable text) ---`
+        );
+        logger.info(
+          { filename },
+          "PDF contained no extractable text (possibly scanned/image-only)"
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { filename, err },
+        "PDF text extraction failed - continuing with remaining attachments"
+      );
+      extractedParts.push(`\n\n--- PDF: ${filename} (extraction failed) ---`);
+    }
+  }
+
+  return extractedParts.join("");
 }
 
 export class ImapService {
@@ -374,6 +441,10 @@ export class ImapService {
     const emailSubject = subject || "No Subject";
     const normalizedMessageId = normalizeMessageId(messageId);
 
+    // Extract text from PDF attachments and enrich the email body
+    const pdfText = await extractPdfText(parsed.attachments || []);
+    const enrichedText = (text || "No Body") + pdfText;
+
     // Check for auto-reply headers to prevent loops
     if (this.isAutoReply(headers)) {
       logger.info({ subject, senderEmail }, "Ignoring auto-reply email");
@@ -404,14 +475,14 @@ export class ImapService {
             "Vendor email matched via [REQ-xxx] reference"
           );
 
-          const replyText = getReplyText({ text: text || "No Body" });
+          const replyText = getReplyText({ text: enrichedText });
 
           // Use transaction for atomicity: comment + externalIds update
           const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
             // Create the comment
             const createdComment = await tx.comment.create({
               data: {
-                text: replyText || text || "No Body",
+                text: replyText || enrichedText,
                 userId: null,
                 ticketId: ticket.id,
                 reply: true,
@@ -465,7 +536,7 @@ export class ImapService {
                 ticketId: ticket.id,
                 ticketTitle: ticket.title,
                 commentId: comment.id,
-                replyContent: replyText || text || "No Body",
+                replyContent: replyText || enrichedText,
                 customerEmail: senderEmail,
                 customerName: senderName,
                 isCustomer: false,
@@ -520,7 +591,7 @@ export class ImapService {
           senderEmail,
           senderName,
           emailSubject,
-          text || "No Body",
+          enrichedText,
           html || textAsHtml || "",
           threadId,
           normalizedMessageId,
@@ -537,7 +608,7 @@ export class ImapService {
           matchedTicket,
           senderEmail,
           senderName,
-          text || "No Body",
+          enrichedText,
           normalizedMessageId,
           normalizedInReplyTo
         );
@@ -553,7 +624,7 @@ export class ImapService {
         senderEmail,
         senderName,
         emailSubject,
-        text || "No Body",
+        enrichedText,
         html || textAsHtml || "",
         threadId,
         normalizedMessageId,
