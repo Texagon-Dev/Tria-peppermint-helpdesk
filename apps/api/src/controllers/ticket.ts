@@ -321,9 +321,20 @@ export function ticketRoutes(fastify: FastifyInstance) {
         ? getMaintenanceStatusInfo(ticket.maintenanceStatus as MaintenanceStatusValue)
         : null;
 
+      // Lookup selected vendor by email if present in metadata
+      const vendorEmail = (ticket.metadata as any)?.selectedVendorEmail;
+      let selectedVendor = null;
+      if (vendorEmail) {
+        selectedVendor = await prisma.vendor.findFirst({
+          where: { email: vendorEmail },
+          select: { id: true, name: true, email: true }
+        });
+      }
+
       const t = {
         ...ticket,
         maintenanceStatusInfo,
+        selectedVendor,
         comments: [...comments],
         TimeTracking: [...timeTracking],
         files: [...files],
