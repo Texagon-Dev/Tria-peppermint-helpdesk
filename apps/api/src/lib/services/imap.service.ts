@@ -29,6 +29,12 @@ const logger = pino({
 /** Maximum PDF file size to attempt text extraction (10 MB) */
 const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;
 
+/** Maximum number of pages to parse from a single PDF */
+const MAX_PDF_PAGE_LIMIT = 10;
+
+/** Maximum character length of extracted text per PDF to prevent oversized payloads */
+const MAX_EXTRACTED_TEXT_PER_PDF = 50_000;
+
 /**
  * Safely convert a header value to string, handling BigInt and other types
  */
@@ -67,14 +73,27 @@ function getReplyText(email: any): string {
 }
 
 /**
+ * Escape HTML special characters to safely embed text in HTML context
+ */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
  * Extract text content from PDF attachments in an email.
  * Processes each PDF sequentially to limit memory usage.
  * Returns the concatenated text from all PDFs, or empty string if none found.
  */
-async function extractPdfText(attachments: Attachment[]): Promise<string> {
-  const pdfAttachments = attachments.filter(
-    (att) => att.contentType === "application/pdf"
-  );
+export async function extractPdfText(attachments: Attachment[]): Promise<string> {
+  const pdfAttachments = attachments.filter((att) => {
+    const type = (att.contentType || "").toLowerCase();
+    const name = (att.filename || "").toLowerCase();
+    return type.startsWith("application/pdf") || name.endsWith(".pdf");
+  });
 
   if (pdfAttachments.length === 0) {
     return "";
@@ -83,7 +102,8 @@ async function extractPdfText(attachments: Attachment[]): Promise<string> {
   const extractedParts: string[] = [];
 
   for (const att of pdfAttachments) {
-    const filename = att.filename || "unnamed.pdf";
+    const rawFilename = att.filename || "unnamed.pdf";
+    const filename = rawFilename.replace(/[\r\n\t]/g, " ").slice(0, 200);
     const sizeBytes = att.content.length;
 
     if (sizeBytes > MAX_PDF_SIZE_BYTES) {
@@ -99,13 +119,34 @@ async function extractPdfText(attachments: Attachment[]): Promise<string> {
 
     try {
       logger.info({ filename, sizeBytes }, "Extracting text from PDF attachment");
-      const result = await pdf(att.content);
-      const text = result.text?.trim();
+      const result = await pdf(att.content, { max: MAX_PDF_PAGE_LIMIT });
+      let text = result.text?.trim();
 
       if (text) {
-        extractedParts.push(`\n\n--- PDF: ${filename} ---\n${text}`);
+        // Cap extracted text length to prevent oversized payloads
+        const wasTruncated = text.length > MAX_EXTRACTED_TEXT_PER_PDF;
+        if (wasTruncated) {
+          text = text.slice(0, MAX_EXTRACTED_TEXT_PER_PDF);
+        }
+
+        let pdfHeader = `--- PDF: ${filename}`;
+        if (result.numpages > MAX_PDF_PAGE_LIMIT) {
+          pdfHeader += ` (first ${MAX_PDF_PAGE_LIMIT} of ${result.numpages} pages)`;
+        }
+        if (wasTruncated) {
+          pdfHeader += ` (text truncated)`;
+        }
+        pdfHeader += " ---";
+
+        extractedParts.push(`\n\n${pdfHeader}\n${text}`);
         logger.info(
-          { filename, extractedLength: text.length },
+          {
+            filename,
+            extractedLength: text.length,
+            totalPages: result.numpages,
+            parsedPages: Math.min(result.numpages, MAX_PDF_PAGE_LIMIT),
+            truncated: wasTruncated,
+          },
           "PDF text extraction successful"
         );
       } else {
@@ -119,7 +160,11 @@ async function extractPdfText(attachments: Attachment[]): Promise<string> {
       }
     } catch (err) {
       logger.error(
-        { filename, err },
+        {
+          filename,
+          errorName: err instanceof Error ? err.name : typeof err,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
         "PDF text extraction failed - continuing with remaining attachments"
       );
       extractedParts.push(`\n\n--- PDF: ${filename} (extraction failed) ---`);
@@ -441,9 +486,14 @@ export class ImapService {
     const emailSubject = subject || "No Subject";
     const normalizedMessageId = normalizeMessageId(messageId);
 
-    // Extract text from PDF attachments and enrich the email body
+    // Extract text from PDF attachments
     const pdfText = await extractPdfText(parsed.attachments || []);
-    const enrichedText = (text || "No Body") + pdfText;
+    const baseText = text || "No Body";
+    const enrichedText = baseText + pdfText;
+
+    // Enrich HTML variant with PDF content for consistent downstream processing
+    const baseHtml = html || textAsHtml || "";
+    const enrichedHtml = baseHtml + (pdfText ? `<hr><pre>${escapeHtml(pdfText)}</pre>` : "");
 
     // Check for auto-reply headers to prevent loops
     if (this.isAutoReply(headers)) {
@@ -475,14 +525,16 @@ export class ImapService {
             "Vendor email matched via [REQ-xxx] reference"
           );
 
-          const replyText = getReplyText({ text: enrichedText });
+          // Parse reply from original email text (without PDF content to avoid distorting reply detection)
+          const replyText = getReplyText({ text: baseText });
+          const commentText = (replyText || baseText) + pdfText;
 
           // Use transaction for atomicity: comment + externalIds update
           const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
             // Create the comment
             const createdComment = await tx.comment.create({
               data: {
-                text: replyText || enrichedText,
+                text: commentText,
                 userId: null,
                 ticketId: ticket.id,
                 reply: true,
@@ -536,7 +588,7 @@ export class ImapService {
                 ticketId: ticket.id,
                 ticketTitle: ticket.title,
                 commentId: comment.id,
-                replyContent: replyText || enrichedText,
+                replyContent: commentText,
                 customerEmail: senderEmail,
                 customerName: senderName,
                 isCustomer: false,
@@ -592,7 +644,7 @@ export class ImapService {
           senderName,
           emailSubject,
           enrichedText,
-          html || textAsHtml || "",
+          enrichedHtml,
           threadId,
           normalizedMessageId,
           { previous: matchedTicket.id } // Link to previous ticket
@@ -608,9 +660,11 @@ export class ImapService {
           matchedTicket,
           senderEmail,
           senderName,
-          enrichedText,
+          baseText,
           normalizedMessageId,
-          normalizedInReplyTo
+          normalizedInReplyTo,
+          'customer',
+          pdfText
         );
 
         // Update ticket's externalIds to include this message
@@ -625,7 +679,7 @@ export class ImapService {
         senderName,
         emailSubject,
         enrichedText,
-        html || textAsHtml || "",
+        enrichedHtml,
         threadId,
         normalizedMessageId,
         null
@@ -717,13 +771,16 @@ export class ImapService {
     textContent: string,
     messageId: string | null,
     inReplyTo: string | null,
-    senderRole: 'customer' | 'vendor' | 'ai' | 'agent' = 'customer'
+    senderRole: 'customer' | 'vendor' | 'ai' | 'agent' = 'customer',
+    pdfText: string = ""
   ): Promise<void> {
+    // Parse reply from original email text (without PDF content to avoid distorting reply detection)
     const replyText = getReplyText({ text: textContent });
+    const commentText = (replyText || textContent) + pdfText;
 
     const comment = await prisma.comment.create({
       data: {
-        text: replyText || textContent,
+        text: commentText,
         userId: null,
         ticketId: ticket.id,
         reply: true,
@@ -752,7 +809,7 @@ export class ImapService {
           ticketId: ticket.id,
           ticketTitle: ticket.title,
           commentId: comment.id,
-          replyContent: replyText || textContent,
+          replyContent: commentText,
           customerEmail: senderEmail,
           customerName: senderName,
           isCustomer: true,
