@@ -480,6 +480,7 @@ enum MaintenanceStatus {
   vendor_quote_received
   awaiting_customer_approval
   customer_approved
+  vendor_contacting_tenant
   appointment_request_sent
   vendor_confirmed_appointment
   customer_notified_of_appointment
