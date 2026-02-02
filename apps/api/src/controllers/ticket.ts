@@ -322,7 +322,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         : null;
 
       // Lookup selected vendor by email if present in metadata
-      const vendorEmail = (ticket.metadata as any)?.selectedVendorEmail;
+      const vendorEmail = (ticket.metadata as any)?.selectedVendorEmail?.trim();
       let selectedVendor = null;
       if (vendorEmail) {
         selectedVendor = await prisma.vendor.findFirst({
@@ -1235,7 +1235,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
       // Build metadata update (preserve existing, add/update selectedVendorEmail if provided)
       const existingMetadata = (ticket.metadata || {}) as Record<string, unknown>;
       const updatedMetadata = vendorEmail
-        ? { ...existingMetadata, selectedVendorEmail: vendorEmail }
+        ? { ...existingMetadata, selectedVendorEmail: vendorEmail.trim() }
         : existingMetadata;
 
       // Update the ticket
