@@ -1239,10 +1239,13 @@ export function ticketRoutes(fastify: FastifyInstance) {
         : existingMetadata;
 
       // Update the ticket
-      // Auto-set ticket status to in_progress when vendor is contacting tenant
-      const ticketStatusUpdate = newStatus === "vendor_contacting_tenant"
-        ? { isComplete: false, status: "in_progress" as const }
-        : {};
+      // Auto-set ticket status based on maintenance status transitions
+      let ticketStatusUpdate = {};
+      if (newStatus === "vendor_contacting_tenant") {
+        ticketStatusUpdate = { isComplete: false, status: "in_progress" as const };
+      } else if (newStatus === "work_completed" || newStatus === "cancelled") {
+        ticketStatusUpdate = { isComplete: true, status: "done" as const };
+      }
 
       await prisma.ticket.update({
         where: { id },
