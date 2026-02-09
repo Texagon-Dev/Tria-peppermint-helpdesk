@@ -24,7 +24,13 @@ END $$;
 
 -- Add maintenanceStatus column to Ticket if not exists
 DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Ticket' AND column_name = 'maintenanceStatus') THEN
+    IF to_regclass('public."Ticket"') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1 FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'Ticket'
+             AND column_name = 'maintenanceStatus'
+       ) THEN
         ALTER TABLE "Ticket" ADD COLUMN "maintenanceStatus" "MaintenanceStatus";
     END IF;
 END $$;
