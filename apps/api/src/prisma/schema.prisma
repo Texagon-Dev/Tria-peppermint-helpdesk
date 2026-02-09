@@ -135,7 +135,8 @@ model Ticket {
   fromImap   Boolean
   Number     Int          @default(autoincrement())
   status     TicketStatus @default(needs_support)
-  type       TicketType   @default(support)
+  type       TicketType   @default(GENERAL)
+  workType   String?      // e.g., "Plumbing", "Electrical", "Windows"
   hidden     Boolean      @default(false)
   createdBy  Json?
   locked     Boolean      @default(false)
@@ -464,14 +465,13 @@ enum TicketStatus {
 }
 
 enum TicketType {
-  bug
-  feature
-  support
-  incident
-  service
-  maintenance
-  access
-  feedback
+  GENERAL
+  MAINTENANCE_ORDER
+  COMPLAINT
+  INFORMATION_INQUIRY
+  CANCELLATION
+  SPAM
+  GREETING_OTHER
 }
 
 enum MaintenanceStatus {
