@@ -1,3 +1,5 @@
+import { TicketStatus, TicketType } from "@prisma/client";
+
 // Vendor controller request types
 export interface ICreateVendorBody {
     name: string;
@@ -60,4 +62,17 @@ export interface IMaintenanceStatusParams {
 export interface IUpdateMaintenanceStatusBody {
     status: string;
     vendorEmail?: string;  // Email of selected vendor (stored in ticket.metadata)
+}
+
+// Ticket update request types
+export interface IUpdateTicketBody {
+    id: string;
+    note?: string;
+    detail?: string;
+    title?: string;
+    priority?: string;
+    status?: TicketStatus;
+    type?: TicketType;
+    workType?: string | null;
+    client?: string;
 }
