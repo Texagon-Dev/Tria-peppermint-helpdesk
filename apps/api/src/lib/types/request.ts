@@ -1,3 +1,5 @@
+import { TicketStatus, TicketType } from "@prisma/client";
+
 // Vendor controller request types
 export interface ICreateVendorBody {
     name: string;
@@ -69,8 +71,8 @@ export interface IUpdateTicketBody {
     detail?: string;
     title?: string;
     priority?: string;
-    status?: string;
-    type?: string;
+    status?: TicketStatus;
+    type?: TicketType;
     workType?: string | null;
     client?: string;
 }
