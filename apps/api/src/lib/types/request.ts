@@ -61,3 +61,16 @@ export interface IUpdateMaintenanceStatusBody {
     status: string;
     vendorEmail?: string;  // Email of selected vendor (stored in ticket.metadata)
 }
+
+// Ticket update request types
+export interface IUpdateTicketBody {
+    id: string;
+    note?: string;
+    detail?: string;
+    title?: string;
+    priority?: string;
+    status?: string;
+    type?: string;
+    workType?: string | null;
+    client?: string;
+}

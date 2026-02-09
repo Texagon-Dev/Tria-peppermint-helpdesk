@@ -19,7 +19,7 @@ import {
 import { sendWebhookNotification } from "../lib/notifications/webhook";
 import { requirePermission } from "../lib/roles";
 import { checkSession } from "../lib/session";
-import { ICommentBody, IMaintenanceStatusParams, IUpdateMaintenanceStatusBody } from "../lib/types/request";
+import { ICommentBody, IMaintenanceStatusParams, IUpdateMaintenanceStatusBody, IUpdateTicketBody } from "../lib/types/request";
 import {
   MAINTENANCE_STATUSES,
   getAllMaintenanceStatuses,
@@ -68,7 +68,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
           priority: priority ? priority : "low",
           email,
           type: type ? type : "GENERAL",
-          workType: workType || null,
+          workType: workType ?? null,
           createdBy: createdBy
             ? {
               id: createdBy.id,
@@ -174,7 +174,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
           priority: priority ? priority : "low",
           email,
           type: type ? type : "GENERAL",
-          workType: workType || null,
+          workType: workType ?? null,
           createdBy: createdBy
             ? {
               id: createdBy.id,
@@ -520,13 +520,13 @@ export function ticketRoutes(fastify: FastifyInstance) {
   );
 
   // Update a ticket
-  fastify.put(
+  fastify.put<{ Body: IUpdateTicketBody }>(
     "/api/v1/ticket/update",
     {
       preHandler: requirePermission(["issue::update"]),
     },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id, note, detail, title, priority, status, type, workType, client }: any =
+    async (request, reply) => {
+      const { id, note, detail, title, priority, status, type, workType, client } =
         request.body;
 
       const user = await checkSession(request);
