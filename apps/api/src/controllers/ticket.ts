@@ -54,6 +54,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         email,
         engineer,
         type,
+        workType,
         createdBy,
       }: any = request.body;
 
@@ -66,7 +67,8 @@ export function ticketRoutes(fastify: FastifyInstance) {
           detail: JSON.stringify(detail),
           priority: priority ? priority : "low",
           email,
-          type: type ? type.toLowerCase() : "support",
+          type: type ? type : "GENERAL",
+          workType: workType || null,
           createdBy: createdBy
             ? {
               id: createdBy.id,
@@ -160,6 +162,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         email,
         engineer,
         type,
+        workType,
         createdBy,
       }: any = request.body;
 
@@ -170,7 +173,8 @@ export function ticketRoutes(fastify: FastifyInstance) {
           detail: JSON.stringify(detail),
           priority: priority ? priority : "low",
           email,
-          type: type ? type.toLowerCase() : "support",
+          type: type ? type : "GENERAL",
+          workType: workType || null,
           createdBy: createdBy
             ? {
               id: createdBy.id,
@@ -522,7 +526,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
       preHandler: requirePermission(["issue::update"]),
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id, note, detail, title, priority, status, client }: any =
+      const { id, note, detail, title, priority, status, type, workType, client }: any =
         request.body;
 
       const user = await checkSession(request);
@@ -539,6 +543,8 @@ export function ticketRoutes(fastify: FastifyInstance) {
           title,
           priority,
           status,
+          type,
+          workType,
         },
       });
 
