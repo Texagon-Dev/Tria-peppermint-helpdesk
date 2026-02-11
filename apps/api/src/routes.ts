@@ -14,6 +14,7 @@ import { userRoutes } from "./controllers/users";
 import { webhookRoutes } from "./controllers/webhooks";
 import { vendorRoutes } from "./controllers/vendors";
 import { vendorEmailRoutes } from "./controllers/vendor-email";
+import { utilityCompanyRoutes } from "./controllers/utility-companies";
 
 
 
@@ -33,5 +34,6 @@ export function registerRoutes(fastify: FastifyInstance) {
   roleRoutes(fastify);
   vendorRoutes(fastify);
   vendorEmailRoutes(fastify);
+  utilityCompanyRoutes(fastify);
 }
 
