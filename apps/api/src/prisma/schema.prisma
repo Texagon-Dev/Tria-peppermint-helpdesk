@@ -515,3 +515,24 @@ model Vendor {
   description String   // Required for AI matching
   active      Boolean  @default(true)
 }
+
+model UtilityCategory {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  name      String   @unique
+
+  utilities UtilityCompany[]
+}
+
+model UtilityCompany {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  name        String
+  email       String   @unique
+  categoryId  String
+  category    UtilityCategory @relation(fields: [categoryId], references: [id])
+  description String
+  active      Boolean  @default(true)
+}
