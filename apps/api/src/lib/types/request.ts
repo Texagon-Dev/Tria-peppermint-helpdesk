@@ -38,6 +38,29 @@ export interface ICategoryIdParams {
     id: string;
 }
 
+// Utility Company controller request types
+export interface ICreateUtilityCompanyBody {
+    name: string;
+    email: string;
+    categoryId: string;
+    description: string;
+}
+
+export interface IUpdateUtilityCompanyBody {
+    id: string;
+    name?: string;
+    email?: string;
+    categoryId?: string;
+    description?: string;
+    active?: boolean;
+}
+
+export interface IUtilityCompanyIdParams { id: string; }
+export interface IUtilityEmailParams { email: string; }
+export interface IUtilityCategoryFilterParams { category: string; }
+export interface ICreateUtilityCategoryBody { name: string; }
+export interface IUtilityCategoryIdParams { id: string; }
+
 // Ticket controller request types
 export interface ICommentBody {
     text: string;
