@@ -245,33 +245,56 @@ export function utilityCompanyRoutes(fastify: FastifyInstance) {
             preHandler: requireAdmin,
         },
         async (request, reply) => {
-            const companies = await prisma.utilityCompany.findMany({
-                include: {
-                    category: true,
-                },
-                orderBy: { name: "asc" },
-            });
-
             // Helper to escape CSV fields
             const escapeCSV = (field: string | null | undefined) => {
                 if (!field) return "";
-                const stringField = String(field);
+                let stringField = String(field);
+
+                // Prevent CSV Injection
+                if (['=', '+', '-', '@'].includes(stringField.charAt(0))) {
+                    stringField = "'" + stringField;
+                }
+
                 if (stringField.includes(",") || stringField.includes('"') || stringField.includes("\n")) {
                     return `"${stringField.replace(/"/g, '""')}"`;
                 }
                 return stringField;
             };
 
-            // Build CSV content
-            const csvHeader = "name,email,category,description\n";
-            const csvRows = companies.map(c =>
-                `${escapeCSV(c.name)},${escapeCSV(c.email)},${escapeCSV(c.category?.name)},${escapeCSV(c.description)}`
-            ).join("\n");
+            // Stream the response
+            const BATCH_SIZE = 100;
 
-            reply
+            async function* csvGenerator() {
+                yield "name,email,category,description\n";
+
+                let cursor: string | undefined;
+
+                while (true) {
+                    const batch = await prisma.utilityCompany.findMany({
+                        take: BATCH_SIZE,
+                        orderBy: { name: "asc" as const },
+                        include: {
+                            category: true,
+                        },
+                        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+                    });
+
+                    if (batch.length === 0) break;
+
+                    for (const c of batch) {
+                        yield `${escapeCSV(c.name)},${escapeCSV(c.email)},${escapeCSV(c.category?.name)},${escapeCSV(c.description)}\n`;
+                    }
+
+                    cursor = batch[batch.length - 1].id;
+
+                    if (batch.length < BATCH_SIZE) break;
+                }
+            }
+
+            return reply
                 .header("Content-Type", "text/csv; charset=utf-8")
                 .header("Content-Disposition", "attachment; filename=utility-companies.csv")
-                .send(csvHeader + csvRows);
+                .send(csvGenerator());
         }
     );
 
@@ -282,7 +305,12 @@ export function utilityCompanyRoutes(fastify: FastifyInstance) {
             preHandler: requireAdmin,
         },
         async (request: FastifyRequest, reply: FastifyReply) => {
-            const parts = (request as any).parts();
+            // Use a custom type or assertion for multipart support
+            const parts = (request as any).parts(); // fastify-multipart types can be tricky, but we should try to avoid 'any' if possible.
+            // keeping (request as any) for now to minimize breakage if types aren't perfectly set up globally,
+            // but the logic below is what matters. 
+            // Ideally: const parts = request.parts() if types are merged.
+
             let totalProcessed = 0;
             let totalCreated = 0;
             let totalErrors = 0;
@@ -325,7 +353,7 @@ export function utilityCompanyRoutes(fastify: FastifyInstance) {
 
                             if (!name || !email || !category || !description) {
                                 totalErrors++;
-                                if (errors.length < 50) errors.push({ email, error: "Missing required fields" });
+                                if (errors.length < 50) errors.push({ line: totalProcessed, error: "Missing required fields" });
                                 continue;
                             }
 
@@ -376,16 +404,14 @@ export function utilityCompanyRoutes(fastify: FastifyInstance) {
                             });
 
                             if (batch.length >= BATCH_SIZE) {
-                                await processBatch(batch);
-                                totalCreated += batch.length; // Approximate, if createMany succeeds
+                                totalCreated += await processBatch(batch);
                                 batch = [];
                             }
                         }
 
                         // Process remaining
                         if (batch.length > 0) {
-                            await processBatch(batch);
-                            totalCreated += batch.length;
+                            totalCreated += await processBatch(batch);
                         }
 
                     } catch (err: any) {
@@ -395,15 +421,18 @@ export function utilityCompanyRoutes(fastify: FastifyInstance) {
             }
 
             async function processBatch(records: any[]) {
-                await prisma.utilityCompany.createMany({
+                const result = await prisma.utilityCompany.createMany({
                     data: records,
                     skipDuplicates: true
                 });
+                return result.count;
             }
+
+            const ignoredCount = totalProcessed - totalCreated - totalErrors;
 
             reply.send({
                 success: true,
-                message: `Processed ${totalProcessed} records. Created/Ignored Duplicates: ${totalCreated}. Errors: ${totalErrors}`,
+                message: `Processed ${totalProcessed} records. Created: ${totalCreated}. Ignored (duplicates): ${ignoredCount}. Errors: ${totalErrors}`,
                 errors: errors.length > 0 ? errors : undefined
             });
         }
