@@ -536,3 +536,16 @@ model UtilityCompany {
   description String
   active      Boolean  @default(true)
 }
+
+model GLAccount {
+  id               String   @id @default(uuid())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  code             String   @unique    // 4-5 digit, e.g. "60000", "4000", "80010"
+  name             String              // e.g. "Mieten Wohnraum", "Heizkosten Gas"
+  accountClass     String              // Group code, e.g. "6000", "8000", "0000"
+  accountClassName String              // Group name, e.g. "Erträge", "Aufwendungen"
+  taxCode          String              // e.g. "M19", "kein", "M7", "19,0"
+  taxRate          Float               // e.g. 19.00, 0.00, 7.00
+  active           Boolean  @default(true)
+}
