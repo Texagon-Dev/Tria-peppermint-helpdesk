@@ -91,7 +91,7 @@ Update an existing GL account. **Requires admin.** All fields except `id` are op
 
 ---
 
-### DELETE `/api/v1/gl-accounts/:id/delete`
+### DELETE `/api/v1/gl-accounts/:id`
 
 Delete a single GL account. **Requires admin.**
 
@@ -130,6 +130,12 @@ Uses **upsert on code** — re-importing an updated CSV will update existing acc
 ```json
 {
   "success": true,
-  "message": "Processed 166 records. Created: 166. Updated: 0. Errors: 0"
+  "message": "Processed 167 records. Created: 166. Updated: 0. Errors: 1",
+  "errors": [
+    {
+      "code": "12345",
+      "error": "Missing required fields"
+    }
+  ]
 }
 ```
