@@ -5,12 +5,35 @@ import {
     ICreateInvoiceBody,
     IUpdateInvoiceBody,
     IInvoiceItemBody,
-    IUpdateInvoiceItemsBody,
     IInvoiceIdParams,
     IInvoicesFilterQuery,
     IExportInvoicesQuery,
     IBulkDeleteBody
 } from "../lib/types/request";
+
+// Valid export preset values
+const VALID_EXPORT_PRESETS = new Set(["1d", "7d", "30d", "1y"]);
+
+/**
+ * Parse and validate an ISO date string.
+ * Returns null if value is undefined/null, throws descriptive error if invalid.
+ */
+function parseDate(value: string | undefined | null, fieldName: string): Date | null {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        throw { isValidationError: true, field: fieldName, message: `${fieldName} must be a valid ISO date` };
+    }
+    return date;
+}
+
+// Typed filter interface for invoice queries (avoids 'any')
+interface InvoiceFilter {
+    status?: string;
+    vendorId?: string;
+    utilityCompanyId?: string;
+    invoiceDate?: { gte?: Date; lte?: Date };
+}
 
 export function invoiceRoutes(fastify: FastifyInstance) {
 
@@ -270,42 +293,44 @@ export function invoiceRoutes(fastify: FastifyInstance) {
         async (request, reply) => {
             const { status, vendorId, utilityCompanyId, startDate, endDate } = request.query;
 
-            const where: any = {};
+            // Validate date filters
+            try {
+                const parsedStartDate = parseDate(startDate, "startDate");
+                const parsedEndDate = parseDate(endDate, "endDate");
 
-            if (status) {
-                where.status = status;
-            }
-            if (vendorId) {
-                where.vendorId = vendorId;
-            }
-            if (utilityCompanyId) {
-                where.utilityCompanyId = utilityCompanyId;
-            }
-            if (startDate || endDate) {
-                where.invoiceDate = {};
-                if (startDate) {
-                    where.invoiceDate.gte = new Date(startDate);
-                }
-                if (endDate) {
-                    where.invoiceDate.lte = new Date(endDate);
-                }
-            }
+                const where: InvoiceFilter = {};
 
-            const invoices = await prisma.invoice.findMany({
-                where,
-                include: {
-                    vendor: true,
-                    utilityCompany: true,
-                    items: {
-                        include: {
-                            glAccount: true,
-                        }
+                if (status) where.status = status;
+                if (vendorId) where.vendorId = vendorId;
+                if (utilityCompanyId) where.utilityCompanyId = utilityCompanyId;
+                if (parsedStartDate || parsedEndDate) {
+                    where.invoiceDate = {
+                        ...(parsedStartDate ? { gte: parsedStartDate } : {}),
+                        ...(parsedEndDate ? { lte: parsedEndDate } : {}),
+                    };
+                }
+
+                const invoices = await prisma.invoice.findMany({
+                    where,
+                    include: {
+                        vendor: true,
+                        utilityCompany: true,
+                        items: {
+                            include: {
+                                glAccount: true,
+                            }
+                        },
                     },
-                },
-                orderBy: { createdAt: "desc" },
-            });
+                    orderBy: { createdAt: "desc" },
+                });
 
-            reply.send({ success: true, invoices });
+                reply.send({ success: true, invoices });
+            } catch (error: any) {
+                if (error.isValidationError) {
+                    return reply.status(400).send({ success: false, error: error.message });
+                }
+                throw error;
+            }
         }
     );
 
@@ -532,13 +557,22 @@ export function invoiceRoutes(fastify: FastifyInstance) {
     // ==========================================
 
     // Export approved invoices to CSV (admin only)
-    fastify.get<{ Querystring: IExportInvoicesQuery }>(
+    // NOTE: POST method because this endpoint has side effects (marks invoices as exported)
+    fastify.post<{ Body: IExportInvoicesQuery }>(
         "/api/v1/invoices/export",
         {
             preHandler: requireAdmin,
         },
         async (request, reply) => {
-            let { startDate, endDate, preset } = request.query;
+            let { startDate, endDate, preset } = request.body;
+
+            // Validate preset if provided
+            if (preset && !VALID_EXPORT_PRESETS.has(preset)) {
+                return reply.status(400).send({
+                    success: false,
+                    error: `Invalid preset. Expected one of: ${Array.from(VALID_EXPORT_PRESETS).join(", ")}`,
+                });
+            }
 
             // Handle preset date ranges
             if (preset) {
@@ -561,114 +595,122 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                 }
             }
 
-            const where: any = {
-                status: "approved",
-            };
+            // Validate date parameters
+            try {
+                const parsedStartDate = parseDate(startDate, "startDate");
+                const parsedEndDate = parseDate(endDate, "endDate");
 
-            if (startDate || endDate) {
-                where.invoiceDate = {};
-                if (startDate) {
-                    where.invoiceDate.gte = new Date(startDate);
-                }
-                if (endDate) {
-                    where.invoiceDate.lte = new Date(endDate);
-                }
-            }
+                const where: InvoiceFilter = {
+                    status: "approved",
+                };
 
-            const invoices = await prisma.invoice.findMany({
-                where,
-                include: {
-                    vendor: true,
-                    utilityCompany: true,
-                    items: {
-                        include: {
-                            glAccount: true,
-                        }
+                if (parsedStartDate || parsedEndDate) {
+                    where.invoiceDate = {
+                        ...(parsedStartDate ? { gte: parsedStartDate } : {}),
+                        ...(parsedEndDate ? { lte: parsedEndDate } : {}),
+                    };
+                }
+
+                const invoices = await prisma.invoice.findMany({
+                    where,
+                    include: {
+                        vendor: true,
+                        utilityCompany: true,
+                        items: {
+                            include: {
+                                glAccount: true,
+                            }
+                        },
                     },
-                },
-                orderBy: { invoiceDate: "asc" },
-            });
-
-            // Helper to escape CSV fields
-            const escapeCSV = (field: string | number | null | undefined) => {
-                if (field === null || field === undefined) return "";
-                const stringField = String(field);
-                if (stringField.includes(",") || stringField.includes('"') || stringField.includes("\n")) {
-                    return `"${stringField.replace(/"/g, '""')}"`;
-                }
-                return stringField;
-            };
-
-            // Format date for CSV
-            const formatDate = (date: Date | null | undefined) => {
-                if (!date) return "";
-                return date.toISOString().split('T')[0];
-            };
-
-            // Build CSV content
-            const csvHeader = [
-                "invoiceNumber",
-                "invoiceDate",
-                "dueDate",
-                "vendorName",
-                "utilityCompanyName",
-                "grossTotal",
-                "netTotal",
-                "vatAmount",
-                "vatRate",
-                "taxType",
-                "laborTotal",
-                "materialTotal",
-                "propertyAddress",
-                "propertyOwner",
-                "tenantName",
-                "unitReference",
-                "status",
-                "sourceType",
-                "caseNumber",
-                "itemCount"
-            ].join(",") + "\n";
-
-            const csvRows = invoices.map(inv =>
-                [
-                    escapeCSV(inv.invoiceNumber),
-                    escapeCSV(formatDate(inv.invoiceDate)),
-                    escapeCSV(formatDate(inv.dueDate)),
-                    escapeCSV(inv.vendor?.name),
-                    escapeCSV(inv.utilityCompany?.name),
-                    escapeCSV(inv.grossTotal),
-                    escapeCSV(inv.netTotal),
-                    escapeCSV(inv.vatAmount),
-                    escapeCSV(inv.vatRate),
-                    escapeCSV(inv.taxType),
-                    escapeCSV(inv.laborTotal),
-                    escapeCSV(inv.materialTotal),
-                    escapeCSV(inv.propertyAddress),
-                    escapeCSV(inv.propertyOwner),
-                    escapeCSV(inv.tenantName),
-                    escapeCSV(inv.unitReference),
-                    escapeCSV(inv.status),
-                    escapeCSV(inv.sourceType),
-                    escapeCSV(inv.caseNumber),
-                    escapeCSV(inv.items.length)
-                ].join(",")
-            ).join("\n");
-
-            // Update exported invoices status
-            const invoiceIds = invoices.map(inv => inv.id);
-            if (invoiceIds.length > 0) {
-                await prisma.invoice.updateMany({
-                    where: { id: { in: invoiceIds } },
-                    data: { status: "exported" },
+                    orderBy: { invoiceDate: "asc" },
                 });
+
+                // Helper to escape CSV fields
+                const escapeCSV = (field: string | number | null | undefined) => {
+                    if (field === null || field === undefined) return "";
+                    const stringField = String(field);
+                    if (stringField.includes(",") || stringField.includes('"') || stringField.includes("\n")) {
+                        return `"${stringField.replace(/"/g, '""')}"`;
+                    }
+                    return stringField;
+                };
+
+                // Format date for CSV
+                const formatDate = (date: Date | null | undefined) => {
+                    if (!date) return "";
+                    return date.toISOString().split('T')[0];
+                };
+
+                // Build CSV content
+                const csvHeader = [
+                    "invoiceNumber",
+                    "invoiceDate",
+                    "dueDate",
+                    "vendorName",
+                    "utilityCompanyName",
+                    "grossTotal",
+                    "netTotal",
+                    "vatAmount",
+                    "vatRate",
+                    "taxType",
+                    "laborTotal",
+                    "materialTotal",
+                    "propertyAddress",
+                    "propertyOwner",
+                    "tenantName",
+                    "unitReference",
+                    "status",
+                    "sourceType",
+                    "caseNumber",
+                    "itemCount"
+                ].join(",") + "\n";
+
+                const csvRows = invoices.map(inv =>
+                    [
+                        escapeCSV(inv.invoiceNumber),
+                        escapeCSV(formatDate(inv.invoiceDate)),
+                        escapeCSV(formatDate(inv.dueDate)),
+                        escapeCSV(inv.vendor?.name),
+                        escapeCSV(inv.utilityCompany?.name),
+                        escapeCSV(inv.grossTotal),
+                        escapeCSV(inv.netTotal),
+                        escapeCSV(inv.vatAmount),
+                        escapeCSV(inv.vatRate),
+                        escapeCSV(inv.taxType),
+                        escapeCSV(inv.laborTotal),
+                        escapeCSV(inv.materialTotal),
+                        escapeCSV(inv.propertyAddress),
+                        escapeCSV(inv.propertyOwner),
+                        escapeCSV(inv.tenantName),
+                        escapeCSV(inv.unitReference),
+                        escapeCSV(inv.status),
+                        escapeCSV(inv.sourceType),
+                        escapeCSV(inv.caseNumber),
+                        escapeCSV(inv.items.length)
+                    ].join(",")
+                ).join("\n");
+
+                // Update exported invoices status (only approved ones)
+                const invoiceIds = invoices.map(inv => inv.id);
+                if (invoiceIds.length > 0) {
+                    await prisma.invoice.updateMany({
+                        where: { id: { in: invoiceIds }, status: "approved" },
+                        data: { status: "exported" },
+                    });
+                }
+
+                const filename = `invoices_export_${new Date().toISOString().split('T')[0]}.csv`;
+
+                reply
+                    .header("Content-Type", "text/csv; charset=utf-8")
+                    .header("Content-Disposition", `attachment; filename=${filename}`)
+                    .send(csvHeader + csvRows);
+            } catch (error: any) {
+                if (error.isValidationError) {
+                    return reply.status(400).send({ success: false, error: error.message });
+                }
+                throw error;
             }
-
-            const filename = `invoices_export_${new Date().toISOString().split('T')[0]}.csv`;
-
-            reply
-                .header("Content-Type", "text/csv; charset=utf-8")
-                .header("Content-Disposition", `attachment; filename=${filename}`)
-                .send(csvHeader + csvRows);
         }
     );
 }
