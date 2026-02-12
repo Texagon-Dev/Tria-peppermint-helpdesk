@@ -15,6 +15,7 @@ import { webhookRoutes } from "./controllers/webhooks";
 import { vendorRoutes } from "./controllers/vendors";
 import { vendorEmailRoutes } from "./controllers/vendor-email";
 import { utilityCompanyRoutes } from "./controllers/utility-companies";
+import { glAccountRoutes } from "./controllers/gl-accounts";
 
 
 
@@ -35,5 +36,5 @@ export function registerRoutes(fastify: FastifyInstance) {
   vendorRoutes(fastify);
   vendorEmailRoutes(fastify);
   utilityCompanyRoutes(fastify);
+  glAccountRoutes(fastify);
 }
-
