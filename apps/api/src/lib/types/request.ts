@@ -61,6 +61,31 @@ export interface IUtilityCategoryFilterParams { category: string; }
 export interface ICreateUtilityCategoryBody { name: string; }
 export interface IUtilityCategoryIdParams { id: string; }
 
+// GL Account controller request types
+export interface ICreateGLAccountBody {
+    code: string;
+    name: string;
+    accountClass: string;
+    accountClassName: string;
+    taxCode: string;
+    taxRate: number;
+}
+
+export interface IUpdateGLAccountBody {
+    id: string;
+    code?: string;
+    name?: string;
+    accountClass?: string;
+    accountClassName?: string;
+    taxCode?: string;
+    taxRate?: number;
+    active?: boolean;
+}
+
+export interface IGLAccountIdParams { id: string; }
+export interface IGLAccountCodeParams { code: string; }
+export interface IGLAccountClassParams { accountClass: string; }
+
 // Ticket controller request types
 export interface ICommentBody {
     text: string;
