@@ -129,8 +129,8 @@ export interface IUpdateTicketBody {
 // UC3 Phase 2: Invoice request types
 // ==========================================
 
+// Note: Items use replacement semantics (delete all + recreate), not individual updates
 export interface IInvoiceItemBody {
-    id?: string;  // For updates
     description: string;
     unit?: string;
     quantity?: number;
@@ -215,11 +215,6 @@ export interface IUpdateInvoiceBody {
     caseNumber?: string;
     vendorId?: string;
     utilityCompanyId?: string;
-}
-
-export interface IUpdateInvoiceItemsBody {
-    invoiceId: string;
-    items: IInvoiceItemBody[];
 }
 
 export interface IInvoiceIdParams {
