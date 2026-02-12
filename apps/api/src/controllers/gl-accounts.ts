@@ -42,7 +42,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
                         accountClass,
                         accountClassName,
                         taxCode,
-                        taxRate: parseFloat(String(taxRate)),
+                        taxRate: taxRate,
                     },
                 });
 
@@ -81,7 +81,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
                         accountClass,
                         accountClassName,
                         taxCode,
-                        taxRate: taxRate !== undefined ? parseFloat(String(taxRate)) : undefined,
+                        taxRate: taxRate,
                         active,
                     },
                 });
@@ -138,11 +138,19 @@ export function glAccountRoutes(fastify: FastifyInstance) {
         }
     );
 
+    // Helper for secure session endpoint
+    const requireSession = async (request: FastifyRequest, reply: FastifyReply) => {
+        const user = await checkSession(request);
+        if (!user) {
+            return reply.code(401).send({ success: false, error: "Authentication required" });
+        }
+    };
+
     // Get GL account by code (for AI agent / lookup)
     fastify.get<{ Params: IGLAccountCodeParams }>(
         "/api/v1/gl-account/code/:code",
         {
-            preHandler: checkSession,
+            preHandler: requireSession,
         },
         async (request, reply) => {
             const { code } = request.params;
@@ -160,10 +168,11 @@ export function glAccountRoutes(fastify: FastifyInstance) {
     );
 
     // Get GL accounts by account class (for AI agent filtering)
+    // Get GL accounts by class (for AI agent) - REPLACED checkSession with stricter requireSession
     fastify.get<{ Params: IGLAccountClassParams }>(
         "/api/v1/gl-accounts/class/:accountClass",
         {
-            preHandler: checkSession,
+            preHandler: requireSession,
         },
         async (request, reply) => {
             const { accountClass } = request.params;
@@ -182,7 +191,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
 
     // Delete GL account (admin only)
     fastify.delete<{ Params: IGLAccountIdParams }>(
-        "/api/v1/gl-accounts/:id/delete",
+        "/api/v1/gl-accounts/:id",
         {
             preHandler: requireAdmin,
         },
@@ -243,7 +252,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
             // Helper to escape CSV fields
             const escapeCSV = (field: string | number | null | undefined) => {
                 if (field === null || field === undefined) return "";
-                let stringField = String(field);
+                let stringField = String(field).trim();
 
                 // Prevent CSV Injection
                 if (['=', '+', '-', '@'].includes(stringField.charAt(0))) {
@@ -320,7 +329,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
                         relax_quotes: true
                     });
 
-                    let batch: any[] = [];
+                    let batch: (ICreateGLAccountBody & { active: boolean })[] = [];
                     const BATCH_SIZE = 50;
 
                     try {
@@ -374,14 +383,11 @@ export function glAccountRoutes(fastify: FastifyInstance) {
             }
 
             async function processBatch(records: any[]): Promise<{ created: number; updated: number }> {
-                let created = 0;
-                let updated = 0;
-
-                // Use upsert for each record (update existing, create new)
-                for (const record of records) {
+                const results = await Promise.all(records.map(async (record) => {
                     try {
                         const existing = await prisma.gLAccount.findUnique({
-                            where: { code: record.code }
+                            where: { code: record.code },
+                            select: { id: true }
                         });
 
                         await prisma.gLAccount.upsert({
@@ -396,14 +402,25 @@ export function glAccountRoutes(fastify: FastifyInstance) {
                             create: record,
                         });
 
-                        if (existing) {
+                        return { status: 'success', wasExisting: !!existing, code: record.code };
+                    } catch (err: any) {
+                        return { status: 'error', code: record.code, message: err.message };
+                    }
+                }));
+
+                let created = 0;
+                let updated = 0;
+
+                for (const result of results) {
+                    if (result.status === 'success') {
+                        if (result.wasExisting) {
                             updated++;
                         } else {
                             created++;
                         }
-                    } catch (err: any) {
+                    } else {
                         totalErrors++;
-                        if (errors.length < 50) errors.push({ code: record.code, error: err.message });
+                        if (errors.length < 50) errors.push({ code: result.code || 'unknown', error: result.message });
                     }
                 }
 
