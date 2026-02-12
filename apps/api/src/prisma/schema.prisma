@@ -514,6 +514,8 @@ model Vendor {
   category    VendorCategory @relation(fields: [categoryId], references: [id])
   description String   // Required for AI matching
   active      Boolean  @default(true)
+
+  invoices    Invoice[]
 }
 
 model UtilityCategory {
@@ -535,6 +537,8 @@ model UtilityCompany {
   category    UtilityCategory @relation(fields: [categoryId], references: [id])
   description String
   active      Boolean  @default(true)
+
+  invoices    Invoice[]
 }
 
 model GLAccount {
@@ -548,4 +552,98 @@ model GLAccount {
   taxCode          String              // e.g. "M19", "kein", "M7", "19,0"
   taxRate          Float               // e.g. 19.00, 0.00, 7.00
   active           Boolean  @default(true)
+
+  invoiceItems     InvoiceItem[]
+}
+
+// ==========================================
+// UC3 Phase 2: Invoice Data Layer
+// ==========================================
+
+model Invoice {
+  id                     String    @id @default(uuid())
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Core fields
+  invoiceNumber          String
+  invoiceDate            DateTime
+  dueDate                DateTime?
+
+  // Amounts
+  grossTotal             Float
+  netTotal               Float?
+  vatAmount              Float?
+  vatRate                Float?
+  taxType                String    @default("vat")  // "vat" or "insurance_tax"
+
+  // Labor/Material split (§35a)
+  laborTotal             Float?
+  laborTotalGross        Float?
+  materialTotal          Float?
+
+  // Property/Owner identification
+  propertyAddress        String?   // Bauvorhaben / Versichertes Objekt
+  propertyOwner          String?   // Rechnungsempfänger owner name
+  tenantName             String?
+  unitReference          String?   // Floor/unit e.g. "2.OG mitte"
+
+  // Skonto (discount)
+  skontoRate             Float?
+  skontoAmount           Float?
+  skontoDeadline         DateTime?
+
+  // Vendor reference numbers
+  vendorCustomerNumber   String?
+  vendorProjectNumber    String?
+  vendorTaxNumber        String?
+
+  // Insurance-specific
+  insurancePolicyNumber  String?
+  coveragePeriod         String?
+
+  // Utility-specific
+  contractAccountNumber  String?
+  meterNumber            String?
+  billingPeriodStart     DateTime?
+  billingPeriodEnd       DateTime?
+
+  // PDF storage (nullable for now)
+  pdfPath                String?
+
+  // Status & workflow
+  status                 String    @default("pending_review")  // pending_review, approved, exported
+  aiConfidence           Float?
+  sourceType             String    @default("standalone")      // standalone, maintenance_linked
+  caseNumber             String?                               // UC2 ticket ref
+
+  // Relations
+  vendorId               String?
+  vendor                 Vendor?   @relation(fields: [vendorId], references: [id])
+  utilityCompanyId       String?
+  utilityCompany         UtilityCompany? @relation(fields: [utilityCompanyId], references: [id])
+
+  items                  InvoiceItem[]
+}
+
+model InvoiceItem {
+  id                     String    @id @default(uuid())
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  description            String
+  unit                   String?   // Stück, Std, m², x
+  quantity               Float?
+  unitPrice              Float?
+  total                  Float
+  costType               String?   // labor, material, mixed
+
+  // GL Account
+  glAccountId            String?
+  glAccount              GLAccount? @relation(fields: [glAccountId], references: [id])
+  glAccountSuggested     String?   // AI suggestion before human review
+
+  // Parent invoice
+  invoiceId              String
+  invoice                Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }

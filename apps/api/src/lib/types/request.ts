@@ -124,3 +124,113 @@ export interface IUpdateTicketBody {
     workType?: string | null;
     client?: string;
 }
+
+// ==========================================
+// UC3 Phase 2: Invoice request types
+// ==========================================
+
+// Note: Items use replacement semantics (delete all + recreate), not individual updates
+export interface IInvoiceItemBody {
+    description: string;
+    unit?: string;
+    quantity?: number;
+    unitPrice?: number;
+    total: number;
+    costType?: string;
+    glAccountId?: string;
+    glAccountSuggested?: string;
+}
+
+export interface ICreateInvoiceBody {
+    invoiceNumber: string;
+    invoiceDate: string;  // ISO date string
+    dueDate?: string;
+    grossTotal: number;
+    netTotal?: number;
+    vatAmount?: number;
+    vatRate?: number;
+    taxType?: string;
+    laborTotal?: number;
+    laborTotalGross?: number;
+    materialTotal?: number;
+    propertyAddress?: string;
+    propertyOwner?: string;
+    tenantName?: string;
+    unitReference?: string;
+    skontoRate?: number;
+    skontoAmount?: number;
+    skontoDeadline?: string;
+    vendorCustomerNumber?: string;
+    vendorProjectNumber?: string;
+    vendorTaxNumber?: string;
+    insurancePolicyNumber?: string;
+    coveragePeriod?: string;
+    contractAccountNumber?: string;
+    meterNumber?: string;
+    billingPeriodStart?: string;
+    billingPeriodEnd?: string;
+    pdfPath?: string;
+    status?: string;
+    aiConfidence?: number;
+    sourceType?: string;
+    caseNumber?: string;
+    vendorId?: string;
+    utilityCompanyId?: string;
+    items?: IInvoiceItemBody[];
+}
+
+export interface IUpdateInvoiceBody {
+    id: string;
+    invoiceNumber?: string;
+    invoiceDate?: string;
+    dueDate?: string;
+    grossTotal?: number;
+    netTotal?: number;
+    vatAmount?: number;
+    vatRate?: number;
+    taxType?: string;
+    laborTotal?: number;
+    laborTotalGross?: number;
+    materialTotal?: number;
+    propertyAddress?: string;
+    propertyOwner?: string;
+    tenantName?: string;
+    unitReference?: string;
+    skontoRate?: number;
+    skontoAmount?: number;
+    skontoDeadline?: string;
+    vendorCustomerNumber?: string;
+    vendorProjectNumber?: string;
+    vendorTaxNumber?: string;
+    insurancePolicyNumber?: string;
+    coveragePeriod?: string;
+    contractAccountNumber?: string;
+    meterNumber?: string;
+    billingPeriodStart?: string;
+    billingPeriodEnd?: string;
+    pdfPath?: string;
+    status?: string;
+    aiConfidence?: number;
+    sourceType?: string;
+    caseNumber?: string;
+    vendorId?: string;
+    utilityCompanyId?: string;
+}
+
+export interface IInvoiceIdParams {
+    id: string;
+}
+
+export interface IInvoicesFilterQuery {
+    status?: string;
+    vendorId?: string;
+    utilityCompanyId?: string;
+    startDate?: string;
+    endDate?: string;
+}
+
+export interface IExportInvoicesQuery {
+    startDate?: string;
+    endDate?: string;
+    preset?: string;  // "1d", "7d", "30d", "1y"
+}
