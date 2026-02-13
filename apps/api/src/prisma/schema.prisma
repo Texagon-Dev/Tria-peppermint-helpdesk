@@ -454,6 +454,7 @@ enum Hook {
   ticket_status_changed
   customer_ticket_created
   customer_reply_received
+  invoice_received
 }
 
 enum TicketStatus {
