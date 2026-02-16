@@ -655,10 +655,16 @@ export class ImapService {
     // Mitigation: All AI-created invoices require manual approval in the dashboard.
     const vendor = await this.findVendorByEmail(senderEmail);
     const utilityCompany = await this.findUtilityCompanyByEmail(senderEmail);
+
+    if (vendor && utilityCompany) {
+      logger.warn({ senderEmail }, 'Sender matched both vendor and utility company; preferring vendor');
+    }
+
+    const senderEntity = vendor || utilityCompany;
+    const senderType: 'vendor' | 'utility' | null = vendor ? 'vendor' : utilityCompany ? 'utility' : null;
+
     const isVendor = !!vendor;
     const isUtility = !!utilityCompany;
-    const senderEntity = vendor || utilityCompany;
-    const senderType: 'vendor' | 'utility' = isVendor ? 'vendor' : 'utility';
     const hasPdf = this.hasPdfAttachment(parsed.attachments || []);
 
     // ─── SWITCHBOARD: Vendor/Utility with PDF ─────────────────────────
@@ -737,35 +743,33 @@ export class ImapService {
 
           // Trigger enriched webhook to Main Flowise workflow
           const replyWebhooks = await prisma.webhooks.findMany({
-            where: { type: 'customer_reply_received', active: true },
+            where: { type: 'ticket_reply_received', active: true },
           });
 
           await Promise.all(
             replyWebhooks.map(async (webhook) => {
               const message = {
-                event: 'customer_reply_received',
+                event: 'ticket_reply_received',
                 ticketId: matchedTicket!.id,
                 ticketTitle: matchedTicket!.title,
                 commentId: comment.id,
                 replyContent: invoiceCommentText,
-                customerEmail: senderEmail,
-                customerName: senderName,
-                isCustomer: false,
-                isVendor: true,
+                sender: {
+                  type: senderType!,
+                  email: senderEmail,
+                  name: senderEntity!.name,
+                },
                 fromImap: true,
                 externalIds: currentExternalIds,
                 // ── UC3 Phase 3: Enriched fields ──
                 has_pdf: true,
-                sender_type: senderType,
-                sender_id: senderEntity!.id,
-                sender_name: senderEntity!.name,
                 maintenance_status: maintenanceStatus,
                 is_invoice_expected: true,
                 pdf_files: pdfData,
               };
               logger.info(
                 { url: webhook.url, senderType },
-                'PATH A: Triggering enriched customer_reply_received webhook'
+                'PATH A: Triggering enriched ticket_reply_received webhook'
               );
               await sendWebhookNotification(webhook, message);
             })
@@ -811,27 +815,28 @@ export class ImapService {
           });
 
           const replyWebhooks = await prisma.webhooks.findMany({
-            where: { type: 'customer_reply_received', active: true },
+            where: { type: 'ticket_reply_received', active: true },
           });
 
           await Promise.all(
             replyWebhooks.map(async (webhook) => {
               const message = {
-                event: 'customer_reply_received',
+                event: 'ticket_reply_received',
                 ticketId: matchedTicket!.id,
                 ticketTitle: matchedTicket!.title,
                 commentId: comment.id,
                 replyContent: commentText,
-                customerEmail: senderEmail,
-                customerName: senderName,
-                isCustomer: false,
-                isVendor: true,
+                sender: {
+                  type: senderType!,
+                  email: senderEmail,
+                  name: senderEntity!.name,
+                },
                 fromImap: true,
                 externalIds: currentExternalIds,
               };
               logger.info(
                 { url: webhook.url },
-                'Triggering customer_reply_received webhook for vendor (MOH path)'
+                'Triggering ticket_reply_received webhook for vendor (MOH path)'
               );
               await sendWebhookNotification(webhook, message);
             })
@@ -867,7 +872,7 @@ export class ImapService {
           baseHtml,
           parsed.date,
           senderEntity!,
-          senderType,
+          senderType!,
           pdfData
         );
 
@@ -919,27 +924,28 @@ export class ImapService {
           );
 
           const replyWebhooks = await prisma.webhooks.findMany({
-            where: { type: 'customer_reply_received', active: true },
+            where: { type: 'ticket_reply_received', active: true },
           });
 
           await Promise.all(
             replyWebhooks.map(async (webhook) => {
               const message = {
-                event: 'customer_reply_received',
+                event: 'ticket_reply_received',
                 ticketId: ticket.id,
                 ticketTitle: ticket.title,
                 commentId: comment.id,
                 replyContent: commentText,
-                customerEmail: senderEmail,
-                customerName: senderName,
-                isCustomer: false,
-                isVendor: true,
+                sender: {
+                  type: senderType!,
+                  email: senderEmail,
+                  name: senderEntity!.name,
+                },
                 fromImap: true,
                 externalIds: currentExternalIds,
               };
               logger.info(
                 { url: webhook.url },
-                'Triggering customer_reply_received webhook for vendor (no PDF)'
+                'Triggering ticket_reply_received webhook for vendor (no PDF)'
               );
               await sendWebhookNotification(webhook, message);
             })
@@ -1134,27 +1140,39 @@ export class ImapService {
       "Added comment to ticket"
     );
 
-    // Trigger customer_reply_received webhook
+    // Only fire webhook for external senders (customer / vendor / utility)
+    // Support team (agent/AI) replies should not trigger external workflows
+    if (senderRole === 'agent' || senderRole === 'ai') {
+      logger.info(
+        { ticketId: ticket.id, senderRole },
+        'Skipping ticket_reply_received webhook — sender is support team'
+      );
+      return;
+    }
+
+    // Trigger ticket_reply_received webhook
     const replyWebhooks = await prisma.webhooks.findMany({
-      where: { type: "customer_reply_received", active: true },
+      where: { type: "ticket_reply_received", active: true },
     });
 
     await Promise.all(
       replyWebhooks.map(async (webhook) => {
         const message = {
-          event: "customer_reply_received",
+          event: "ticket_reply_received",
           ticketId: ticket.id,
           ticketTitle: ticket.title,
           commentId: comment.id,
           replyContent: commentText,
-          customerEmail: senderEmail,
-          customerName: senderName,
-          isCustomer: true,
+          sender: {
+            type: senderRole,
+            email: senderEmail,
+            name: senderName,
+          },
           fromImap: true,
         };
         logger.info(
           { url: webhook.url },
-          "Triggering customer_reply_received webhook"
+          "Triggering ticket_reply_received webhook"
         );
         await sendWebhookNotification(webhook, message);
       })
