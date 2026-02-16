@@ -1227,17 +1227,6 @@ export function ticketRoutes(fastify: FastifyInstance) {
       const currentStatus = ticket.maintenanceStatus as MaintenanceStatusValue | null;
       const newStatus = status;
 
-      // Validate transition
-      // Allow transition if it's the same status (idempotency)
-      if (currentStatus !== newStatus && !isValidTransition(currentStatus, newStatus)) {
-        const currentInfo = currentStatus ? MAINTENANCE_STATUSES[currentStatus] : null;
-        const validNextStatuses = currentInfo!.nextStatuses;
-        return reply.status(400).send({
-          success: false,
-          error: `Invalid transition from '${currentStatus || "null"}' to '${newStatus}'. Valid next statuses are: ${validNextStatuses.join(", ")}`,
-        });
-      }
-
       // Build metadata update (preserve existing, add/update selectedVendorEmail if provided)
       const existingMetadata = (ticket.metadata || {}) as Record<string, unknown>;
       const updatedMetadata = vendorEmail
