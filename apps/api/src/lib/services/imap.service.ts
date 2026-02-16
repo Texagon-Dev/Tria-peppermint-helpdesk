@@ -36,6 +36,21 @@ const MAX_PDF_PAGE_LIMIT = 10;
 const MAX_EXTRACTED_TEXT_PER_PDF = 50_000;
 
 /**
+ * Maintenance statuses where a vendor PDF attachment is expected to be an invoice
+ * (work has been authorized and is in progress or completed).
+ * All other statuses (pending, quote_sent_to_vendor, vendor_quote_received,
+ * awaiting_customer_approval) indicate the PDF is likely a quote.
+ */
+const INVOICE_EXPECTED_STATUSES = [
+  'customer_approved',
+  'vendor_contacting_tenant',
+  'appointment_request_sent',
+  'vendor_confirmed_appointment',
+  'customer_notified_of_appointment',
+  'work_completed',
+];
+
+/**
  * Safely convert a header value to string, handling BigInt and other types
  */
 function safeHeaderValue(value: any): string | null {
@@ -405,6 +420,123 @@ export class ImapService {
   }
 
   /**
+   * Check if sender email is a registered utility company
+   */
+  private static async findUtilityCompanyByEmail(email: string) {
+    return prisma.utilityCompany.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        active: true
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true
+      }
+    });
+  }
+
+  /**
+   * Check if an attachment is a PDF (by content-type or filename extension)
+   */
+  private static isPdfAttachment(a: Attachment): boolean {
+    return (
+      a.contentType === 'application/pdf' ||
+      (!!a.filename && a.filename.toLowerCase().endsWith('.pdf'))
+    );
+  }
+
+  /**
+   * Check if email has PDF attachments
+   */
+  private static hasPdfAttachment(attachments: Attachment[]): boolean {
+    return attachments.some(ImapService.isPdfAttachment);
+  }
+
+  /**
+   * Extract PDF attachment metadata for webhook payload
+   */
+  private static extractPdfAttachmentData(attachments: Attachment[]) {
+    return attachments
+      .filter(ImapService.isPdfAttachment)
+      .map((a) => ({
+        filename: a.filename || 'document.pdf',
+        content: a.content.toString('base64'),
+        contentType: 'application/pdf',
+      }));
+  }
+
+  /**
+   * Update externalIds within a Prisma transaction. Returns the final externalIds array.
+   * Centralizes the dedup-and-append logic used by all vendor/utility reply paths.
+   */
+  private static async updateExternalIdsInTx(
+    tx: { ticket: { findUnique: Function; update: Function } },
+    ticketId: string,
+    messageId: string | null
+  ): Promise<string[]> {
+    const current = await tx.ticket.findUnique({
+      where: { id: ticketId },
+      select: { externalIds: true },
+    });
+    const currentIds: string[] = current?.externalIds ?? [];
+
+    if (!messageId || currentIds.includes(messageId)) {
+      return currentIds;
+    }
+
+    const updatedIds = [...currentIds, messageId];
+    await tx.ticket.update({
+      where: { id: ticketId },
+      data: { externalIds: updatedIds },
+    });
+    return updatedIds;
+  }
+
+  /**
+   * Fire dedicated invoice_received webhook for Path B (standalone invoices).
+   * Queries all active webhooks of type 'invoice_received' and sends the payload.
+   */
+  private static async fireInvoiceWebhook(
+    senderEmail: string,
+    emailSubject: string,
+    baseText: string,
+    baseHtml: string,
+    emailDate: Date | undefined,
+    senderEntity: { id: string; name: string; email: string },
+    senderType: 'vendor' | 'utility',
+    pdfData: { filename: string; content: string; contentType: string }[]
+  ) {
+    const webhooks = await prisma.webhooks.findMany({
+      where: { type: 'invoice_received', active: true },
+    });
+
+    await Promise.all(
+      webhooks.map(async (webhook) => {
+        const message = {
+          event: 'invoice_received',
+          sender: {
+            type: senderType,
+            id: senderEntity.id,
+            name: senderEntity.name,
+          },
+          pdf_files: pdfData,
+          ticketId: null, // No ticket — standalone
+          emailBody: baseText,
+          emailSubject: emailSubject,
+          emailFrom: senderEmail,
+          emailDate: emailDate?.toISOString() || null,
+        };
+        logger.info(
+          { url: webhook.url, senderType, senderName: senderEntity.name },
+          'Triggering invoice_received webhook (Path B — standalone)'
+        );
+        await sendWebhookNotification(webhook, message);
+      })
+    );
+  }
+
+  /**
    * Extract [REQ-xxx] reference from subject line
    * Format: [REQ-abc12345] where abc12345 is first 8 chars of ticket ID (hex)
    */
@@ -470,7 +602,14 @@ export class ImapService {
   }
 
   /**
-   * Process an incoming email - either append to existing ticket or create new
+   * Process an incoming email - either append to existing ticket or create new.
+   *
+   * UC3 Phase 3 "Switchboard" routing:
+   *  - Vendor/Utility + PDF + in-thread + invoice-expected status → PATH A (enriched webhook)
+   *  - Vendor/Utility + PDF + no ticket → PATH B (audit log + direct invoice_received webhook, NO ticket)
+   *  - Vendor/Utility + PDF + in-thread + quote status → Normal MOH flow (existing behavior)
+   *  - Vendor/Utility without PDF → Normal vendor reply (existing behavior)
+   *  - Customer → Normal ticket flow (existing behavior)
    */
   private static async processEmail(parsed: ParsedMail): Promise<void> {
     const { from, subject, text, html, textAsHtml, headers, messageId } = parsed;
@@ -509,11 +648,239 @@ export class ImapService {
     const inReplyToValue = safeHeaderValue(headers.get("in-reply-to"));
     const normalizedInReplyTo = normalizeMessageId(inReplyToValue);
 
-    // VENDOR DETECTION: Check if sender is a registered vendor
+    // ─── SWITCHBOARD: Detect sender type ──────────────────────────────
+    // NOTE: Sender identification relies on the From header, which is validated
+    // upstream by the mail server's SPF/DKIM/DMARC checks. This is the same trust
+    // model used by the entire IMAP service (ticket creation, customer replies, etc.).
+    // Mitigation: All AI-created invoices require manual approval in the dashboard.
     const vendor = await this.findVendorByEmail(senderEmail);
+    const utilityCompany = await this.findUtilityCompanyByEmail(senderEmail);
 
-    if (vendor) {
-      // This is a vendor email - try to match via [REQ-xxx] in subject
+    if (vendor && utilityCompany) {
+      logger.warn({ senderEmail }, 'Sender matched both vendor and utility company; preferring vendor');
+    }
+
+    const senderEntity = vendor || utilityCompany;
+    const senderType: 'vendor' | 'utility' | null = vendor ? 'vendor' : utilityCompany ? 'utility' : null;
+
+    const isVendor = !!vendor;
+    const isUtility = !!utilityCompany;
+    const hasPdf = this.hasPdfAttachment(parsed.attachments || []);
+
+    // ─── SWITCHBOARD: Vendor/Utility with PDF ─────────────────────────
+    if ((isVendor || isUtility) && hasPdf) {
+      logger.info(
+        { senderEmail, senderType, senderName: senderEntity!.name, hasPdf },
+        'Switchboard: Vendor/Utility with PDF detected'
+      );
+
+      // Try to find existing ticket via [REQ-xxx] or triple-layer matching
+      const reqReference = this.extractRequestReference(emailSubject);
+      let matchedTicket: Ticket | null = null;
+
+      if (reqReference) {
+        matchedTicket = await this.findTicketByReference(reqReference);
+        if (matchedTicket) {
+          logger.info(
+            { ticketId: matchedTicket.id, reqRef: reqReference },
+            'Switchboard: Matched ticket via [REQ-xxx]'
+          );
+        }
+      }
+
+      if (!matchedTicket) {
+        matchedTicket = await this.findMatchingTicket(headers, senderEmail, emailSubject);
+      }
+
+      if (matchedTicket) {
+        // ─── PATH A: In-thread vendor/utility reply with PDF ──────
+        const maintenanceStatus = matchedTicket.maintenanceStatus;
+        const isInvoiceExpected = INVOICE_EXPECTED_STATUSES.includes(maintenanceStatus || '');
+
+        if (isInvoiceExpected) {
+          // ── PATH A — Invoice Expected: Enrich webhook, add invoice comment ──
+          logger.info(
+            {
+              ticketId: matchedTicket.id,
+              maintenanceStatus,
+              senderType,
+            },
+            'Switchboard PATH A: Invoice expected — enriching webhook payload'
+          );
+
+          const pdfData = this.extractPdfAttachmentData(parsed.attachments || []);
+          const pdfFilenames = pdfData.map((p) => p.filename).join(', ');
+
+          // Create invoice-received comment (shows PDF name, not raw parsed text)
+          const invoiceCommentText = `📄 Invoice received — ${pdfFilenames}`;
+
+          const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
+            const createdComment = await tx.comment.create({
+              data: {
+                text: invoiceCommentText,
+                userId: null,
+                ticketId: matchedTicket!.id,
+                reply: true,
+                replyEmail: senderEmail,
+                public: true,
+                messageId: normalizedMessageId,
+                inReplyTo: normalizedInReplyTo,
+                senderRole: 'vendor',
+              },
+            });
+
+            const updatedExternalIds = await ImapService.updateExternalIdsInTx(
+              tx, matchedTicket!.id, normalizedMessageId
+            );
+
+            return { comment: createdComment, currentExternalIds: updatedExternalIds };
+          });
+
+          logger.info(
+            { commentId: comment.id, ticketId: matchedTicket.id },
+            'PATH A: Added invoice comment to ticket'
+          );
+
+          // Trigger enriched webhook to Flowise workflow
+          const replyWebhooks = await prisma.webhooks.findMany({
+            where: { type: 'ticket_reply_received', active: true },
+          });
+
+          await Promise.all(
+            replyWebhooks.map(async (webhook) => {
+              const message = {
+                event: 'ticket_reply_received',
+                ticketId: matchedTicket!.id,
+                ticketTitle: matchedTicket!.title,
+                commentId: comment.id,
+                replyContent: invoiceCommentText,
+                sender: {
+                  type: senderType!,
+                  email: senderEmail,
+                  name: senderEntity!.name,
+                },
+                fromImap: true,
+                externalIds: currentExternalIds,
+                has_pdf: true,
+                maintenance_status: maintenanceStatus,
+                is_invoice_expected: true,
+                pdf_files: pdfData,
+              };
+              logger.info(
+                { url: webhook.url, senderType },
+                'PATH A: Triggering enriched ticket_reply_received webhook'
+              );
+              await sendWebhookNotification(webhook, message);
+            })
+          );
+
+          return; // Done — PATH A complete
+
+        } else {
+          // ── NOT invoice expected (quote/pending status) → Normal MOH flow ──
+          logger.info(
+            {
+              ticketId: matchedTicket.id,
+              maintenanceStatus,
+              senderType,
+            },
+            'Switchboard: Quote/pending status — routing to normal MOH flow'
+          );
+
+          // Fall through to existing vendor reply behavior (comment + webhook without enrichment)
+          const replyText = getReplyText({ text: baseText });
+          const commentText = (replyText || baseText) + pdfText;
+
+          const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
+            const createdComment = await tx.comment.create({
+              data: {
+                text: commentText,
+                userId: null,
+                ticketId: matchedTicket!.id,
+                reply: true,
+                replyEmail: senderEmail,
+                public: true,
+                messageId: normalizedMessageId,
+                inReplyTo: normalizedInReplyTo,
+                senderRole: 'vendor',
+              },
+            });
+
+            const updatedExternalIds = await ImapService.updateExternalIdsInTx(
+              tx, matchedTicket!.id, normalizedMessageId
+            );
+
+            return { comment: createdComment, currentExternalIds: updatedExternalIds };
+          });
+
+          const replyWebhooks = await prisma.webhooks.findMany({
+            where: { type: 'ticket_reply_received', active: true },
+          });
+
+          await Promise.all(
+            replyWebhooks.map(async (webhook) => {
+              const message = {
+                event: 'ticket_reply_received',
+                ticketId: matchedTicket!.id,
+                ticketTitle: matchedTicket!.title,
+                commentId: comment.id,
+                replyContent: commentText,
+                sender: {
+                  type: senderType!,
+                  email: senderEmail,
+                  name: senderEntity!.name,
+                },
+                fromImap: true,
+                externalIds: currentExternalIds,
+              };
+              logger.info(
+                { url: webhook.url },
+                'Triggering ticket_reply_received webhook for vendor (MOH path)'
+              );
+              await sendWebhookNotification(webhook, message);
+            })
+          );
+
+          return; // Done — MOH path
+        }
+
+      } else {
+        // ─── PATH B: Standalone vendor/utility email with PDF (no ticket) ──
+        logger.info(
+          { senderEmail, senderType, senderName: senderEntity!.name },
+          'Switchboard PATH B: Standalone invoice — no ticket, firing direct webhook'
+        );
+
+        // Log to Imap_Email for audit trail
+        await prisma.imap_Email.create({
+          data: {
+            from: senderEmail,
+            subject: emailSubject,
+            body: baseText,
+            html: baseHtml,
+            text: baseText,
+          },
+        });
+
+        // Fire dedicated invoice_received webhook directly to UC3
+        const pdfData = this.extractPdfAttachmentData(parsed.attachments || []);
+        await this.fireInvoiceWebhook(
+          senderEmail,
+          emailSubject,
+          baseText,
+          baseHtml,
+          parsed.date,
+          senderEntity!,
+          senderType!,
+          pdfData
+        );
+
+        return; // STOP — no ticket creation for Path B
+      }
+    }
+
+    // ─── Vendor/Utility WITHOUT PDF → existing vendor reply behavior ──
+    if (isVendor || isUtility) {
       const reqReference = this.extractRequestReference(emailSubject);
 
       if (reqReference) {
@@ -521,17 +888,14 @@ export class ImapService {
 
         if (ticket) {
           logger.info(
-            { ticketId: ticket.id, vendorName: vendor.name, reqRef: reqReference },
-            "Vendor email matched via [REQ-xxx] reference"
+            { ticketId: ticket.id, senderName: senderEntity!.name, reqRef: reqReference },
+            'Vendor/Utility email (no PDF) matched via [REQ-xxx] reference'
           );
 
-          // Parse reply from original email text (without PDF content to avoid distorting reply detection)
           const replyText = getReplyText({ text: baseText });
           const commentText = (replyText || baseText) + pdfText;
 
-          // Use transaction for atomicity: comment + externalIds update
           const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
-            // Create the comment
             const createdComment = await tx.comment.create({
               data: {
                 text: commentText,
@@ -546,80 +910,62 @@ export class ImapService {
               },
             });
 
-            // Update externalIds atomically (re-fetch within transaction to avoid stale data)
-            let updatedExternalIds = [];
-            if (normalizedMessageId) {
-              const current = await tx.ticket.findUnique({
-                where: { id: ticket.id },
-                select: { externalIds: true },
-              });
-
-              updatedExternalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
-              await tx.ticket.update({
-                where: { id: ticket.id },
-                data: { externalIds: updatedExternalIds },
-              });
-            } else {
-              // If no new messageId, fetch current state
-              const current = await tx.ticket.findUnique({
-                where: { id: ticket.id },
-                select: { externalIds: true }
-              });
-              updatedExternalIds = current?.externalIds ?? [];
-            }
+            const updatedExternalIds = await ImapService.updateExternalIdsInTx(
+              tx, ticket.id, normalizedMessageId
+            );
 
             return { comment: createdComment, currentExternalIds: updatedExternalIds };
           });
 
           logger.info(
             { commentId: comment.id, ticketId: ticket.id },
-            "Added vendor comment to ticket (transactional)"
+            'Added vendor comment to ticket (no PDF — MOH path)'
           );
 
-          // Trigger webhooks after transaction commits (outside transaction)
           const replyWebhooks = await prisma.webhooks.findMany({
-            where: { type: "customer_reply_received", active: true },
+            where: { type: 'ticket_reply_received', active: true },
           });
 
           await Promise.all(
             replyWebhooks.map(async (webhook) => {
               const message = {
-                event: "customer_reply_received",
+                event: 'ticket_reply_received',
                 ticketId: ticket.id,
                 ticketTitle: ticket.title,
                 commentId: comment.id,
                 replyContent: commentText,
-                customerEmail: senderEmail,
-                customerName: senderName,
-                isCustomer: false,
-                isVendor: true,
+                sender: {
+                  type: senderType!,
+                  email: senderEmail,
+                  name: senderEntity!.name,
+                },
                 fromImap: true,
                 externalIds: currentExternalIds,
               };
               logger.info(
                 { url: webhook.url },
-                "Triggering customer_reply_received webhook for vendor"
+                'Triggering ticket_reply_received webhook for vendor (no PDF)'
               );
               await sendWebhookNotification(webhook, message);
             })
           );
 
-          return; // Done processing vendor email
+          return; // Done processing vendor/utility email (no PDF)
         } else {
           logger.warn(
-            { reqRef: reqReference, vendorEmail: senderEmail },
-            "Vendor email has [REQ-xxx] but no matching ticket found - falling back to normal flow"
+            { reqRef: reqReference, senderEmail },
+            'Vendor/Utility email has [REQ-xxx] but no matching ticket found — falling back to normal flow'
           );
         }
       } else {
         logger.info(
-          { vendorEmail: senderEmail },
-          "Vendor email without [REQ-xxx] tag - treating as normal customer email"
+          { senderEmail, senderType },
+          'Vendor/Utility email without [REQ-xxx] tag and no PDF — treating as normal customer email'
         );
       }
     }
 
-    // Try to find an existing ticket using triple-layer matching (for customers or fallback for vendors)
+    // ─── CUSTOMER (or vendor/utility fallback) → existing ticket flow ──
     const matchedTicket = await this.findMatchingTicket(
       headers,
       senderEmail,
@@ -638,7 +984,6 @@ export class ImapService {
           "Matched ticket is closed/locked - creating new linked ticket"
         );
 
-        // Create new ticket linked to the old one
         await this.createNewTicket(
           senderEmail,
           senderName,
@@ -647,10 +992,9 @@ export class ImapService {
           enrichedHtml,
           threadId,
           normalizedMessageId,
-          { previous: matchedTicket.id } // Link to previous ticket
+          { previous: matchedTicket.id }
         );
       } else {
-        // Append as comment to existing ticket
         logger.info(
           { ticketId: matchedTicket.id },
           "Appending reply to existing ticket"
@@ -667,11 +1011,9 @@ export class ImapService {
           pdfText
         );
 
-        // Update ticket's externalIds to include this message
         await this.addMessageIdToTicket(matchedTicket.id, matchedTicket.externalIds, normalizedMessageId);
       }
     } else {
-      // No matching ticket found - create new
       logger.info({ senderEmail, subject }, "No matching ticket - creating new");
 
       await this.createNewTicket(
@@ -797,27 +1139,39 @@ export class ImapService {
       "Added comment to ticket"
     );
 
-    // Trigger customer_reply_received webhook
+    // Only fire webhook for external senders (customer / vendor / utility)
+    // Support team (agent/AI) replies should not trigger external workflows
+    if (senderRole === 'agent' || senderRole === 'ai') {
+      logger.info(
+        { ticketId: ticket.id, senderRole },
+        'Skipping ticket_reply_received webhook — sender is support team'
+      );
+      return;
+    }
+
+    // Trigger ticket_reply_received webhook
     const replyWebhooks = await prisma.webhooks.findMany({
-      where: { type: "customer_reply_received", active: true },
+      where: { type: "ticket_reply_received", active: true },
     });
 
     await Promise.all(
       replyWebhooks.map(async (webhook) => {
         const message = {
-          event: "customer_reply_received",
+          event: "ticket_reply_received",
           ticketId: ticket.id,
           ticketTitle: ticket.title,
           commentId: comment.id,
           replyContent: commentText,
-          customerEmail: senderEmail,
-          customerName: senderName,
-          isCustomer: true,
+          sender: {
+            type: senderRole,
+            email: senderEmail,
+            name: senderName,
+          },
           fromImap: true,
         };
         logger.info(
           { url: webhook.url },
-          "Triggering customer_reply_received webhook"
+          "Triggering ticket_reply_received webhook"
         );
         await sendWebhookNotification(webhook, message);
       })
