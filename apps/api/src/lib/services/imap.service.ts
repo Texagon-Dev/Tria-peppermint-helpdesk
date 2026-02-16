@@ -437,14 +437,20 @@ export class ImapService {
   }
 
   /**
+   * Check if an attachment is a PDF (by content-type or filename extension)
+   */
+  private static isPdfAttachment(a: Attachment): boolean {
+    return (
+      a.contentType === 'application/pdf' ||
+      (!!a.filename && a.filename.toLowerCase().endsWith('.pdf'))
+    );
+  }
+
+  /**
    * Check if email has PDF attachments
    */
   private static hasPdfAttachment(attachments: Attachment[]): boolean {
-    return attachments.some(
-      (a) =>
-        a.contentType === 'application/pdf' ||
-        (a.filename && a.filename.toLowerCase().endsWith('.pdf'))
-    );
+    return attachments.some(ImapService.isPdfAttachment);
   }
 
   /**
@@ -452,16 +458,39 @@ export class ImapService {
    */
   private static extractPdfAttachmentData(attachments: Attachment[]) {
     return attachments
-      .filter(
-        (a) =>
-          a.contentType === 'application/pdf' ||
-          (a.filename && a.filename.toLowerCase().endsWith('.pdf'))
-      )
+      .filter(ImapService.isPdfAttachment)
       .map((a) => ({
         filename: a.filename || 'document.pdf',
         content: a.content.toString('base64'),
         contentType: 'application/pdf',
       }));
+  }
+
+  /**
+   * Update externalIds within a Prisma transaction. Returns the final externalIds array.
+   * Centralizes the dedup-and-append logic used by all vendor/utility reply paths.
+   */
+  private static async updateExternalIdsInTx(
+    tx: { ticket: { findUnique: Function; update: Function } },
+    ticketId: string,
+    messageId: string | null
+  ): Promise<string[]> {
+    const current = await tx.ticket.findUnique({
+      where: { id: ticketId },
+      select: { externalIds: true },
+    });
+    const currentIds: string[] = current?.externalIds ?? [];
+
+    if (!messageId || currentIds.includes(messageId)) {
+      return currentIds;
+    }
+
+    const updatedIds = [...currentIds, messageId];
+    await tx.ticket.update({
+      where: { id: ticketId },
+      data: { externalIds: updatedIds },
+    });
+    return updatedIds;
   }
 
   /**
@@ -620,6 +649,10 @@ export class ImapService {
     const normalizedInReplyTo = normalizeMessageId(inReplyToValue);
 
     // ─── SWITCHBOARD: Detect sender type ──────────────────────────────
+    // NOTE: Sender identification relies on the From header, which is validated
+    // upstream by the mail server's SPF/DKIM/DMARC checks. This is the same trust
+    // model used by the entire IMAP service (ticket creation, customer replies, etc.).
+    // Mitigation: All AI-created invoices require manual approval in the dashboard.
     const vendor = await this.findVendorByEmail(senderEmail);
     const utilityCompany = await this.findUtilityCompanyByEmail(senderEmail);
     const isVendor = !!vendor;
@@ -690,24 +723,9 @@ export class ImapService {
               },
             });
 
-            let updatedExternalIds: string[] = [];
-            if (normalizedMessageId) {
-              const current = await tx.ticket.findUnique({
-                where: { id: matchedTicket!.id },
-                select: { externalIds: true },
-              });
-              updatedExternalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
-              await tx.ticket.update({
-                where: { id: matchedTicket!.id },
-                data: { externalIds: updatedExternalIds },
-              });
-            } else {
-              const current = await tx.ticket.findUnique({
-                where: { id: matchedTicket!.id },
-                select: { externalIds: true },
-              });
-              updatedExternalIds = current?.externalIds ?? [];
-            }
+            const updatedExternalIds = await ImapService.updateExternalIdsInTx(
+              tx, matchedTicket!.id, normalizedMessageId
+            );
 
             return { comment: createdComment, currentExternalIds: updatedExternalIds };
           });
@@ -785,24 +803,9 @@ export class ImapService {
               },
             });
 
-            let updatedExternalIds: string[] = [];
-            if (normalizedMessageId) {
-              const current = await tx.ticket.findUnique({
-                where: { id: matchedTicket!.id },
-                select: { externalIds: true },
-              });
-              updatedExternalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
-              await tx.ticket.update({
-                where: { id: matchedTicket!.id },
-                data: { externalIds: updatedExternalIds },
-              });
-            } else {
-              const current = await tx.ticket.findUnique({
-                where: { id: matchedTicket!.id },
-                select: { externalIds: true },
-              });
-              updatedExternalIds = current?.externalIds ?? [];
-            }
+            const updatedExternalIds = await ImapService.updateExternalIdsInTx(
+              tx, matchedTicket!.id, normalizedMessageId
+            );
 
             return { comment: createdComment, currentExternalIds: updatedExternalIds };
           });
@@ -851,7 +854,7 @@ export class ImapService {
             subject: emailSubject,
             body: baseText,
             html: baseHtml,
-            text: baseHtml,
+            text: baseText,
           },
         });
 
@@ -903,24 +906,9 @@ export class ImapService {
               },
             });
 
-            let updatedExternalIds: string[] = [];
-            if (normalizedMessageId) {
-              const current = await tx.ticket.findUnique({
-                where: { id: ticket.id },
-                select: { externalIds: true },
-              });
-              updatedExternalIds = [...new Set([...(current?.externalIds ?? []), normalizedMessageId])];
-              await tx.ticket.update({
-                where: { id: ticket.id },
-                data: { externalIds: updatedExternalIds },
-              });
-            } else {
-              const current = await tx.ticket.findUnique({
-                where: { id: ticket.id },
-                select: { externalIds: true },
-              });
-              updatedExternalIds = current?.externalIds ?? [];
-            }
+            const updatedExternalIds = await ImapService.updateExternalIdsInTx(
+              tx, ticket.id, normalizedMessageId
+            );
 
             return { comment: createdComment, currentExternalIds: updatedExternalIds };
           });
