@@ -741,7 +741,7 @@ export class ImapService {
             'PATH A: Added invoice comment to ticket'
           );
 
-          // Trigger enriched webhook to Main Flowise workflow
+          // Trigger enriched webhook to Flowise workflow
           const replyWebhooks = await prisma.webhooks.findMany({
             where: { type: 'ticket_reply_received', active: true },
           });
@@ -761,7 +761,6 @@ export class ImapService {
                 },
                 fromImap: true,
                 externalIds: currentExternalIds,
-                // ── UC3 Phase 3: Enriched fields ──
                 has_pdf: true,
                 maintenance_status: maintenanceStatus,
                 is_invoice_expected: true,

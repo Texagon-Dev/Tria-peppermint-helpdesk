@@ -68,4 +68,31 @@ export function webhookRoutes(fastify: FastifyInstance) {
       reply.status(200).send({ success: true });
     }
   );
+
+  // Update a webhook
+  fastify.put(
+    "/api/v1/admin/webhook/:id/update",
+    {
+      preHandler: requirePermission(["webhook::create"]),
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id }: any = request.params;
+      const { name, url, type, active, secret }: any = request.body;
+
+      const updated = await prisma.webhooks.update({
+        where: { id },
+        data: {
+          ...(name !== undefined && { name }),
+          ...(url !== undefined && { url }),
+          ...(type !== undefined && { type }),
+          ...(active !== undefined && { active }),
+          ...(secret !== undefined && { secret }),
+        },
+      });
+
+      reply
+        .status(200)
+        .send({ message: "Webhook updated!", success: true, webhook: updated });
+    }
+  );
 }
