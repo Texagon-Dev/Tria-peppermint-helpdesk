@@ -106,7 +106,7 @@ export class OpenAIService {
                         content: [
                             {
                                 type: "input_text" as const,
-                                text: "Analyze the following document page images. Classify the document and extract ALL visible text.",
+                                text: "Analyze the following document page images. Classify the document and extract ALL visible text. Respond in JSON format.",
                             },
                             ...imageInputs,
                         ],
