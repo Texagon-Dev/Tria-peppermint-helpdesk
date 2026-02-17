@@ -50,12 +50,12 @@ QUOTE (Angebot / Quote):
 OTHER: Work orders, delivery notes, correspondence, generic emails.
 
 ## TASK 2: EXTRACT all visible text
-Transcribe every piece of visible text from the document images, preserving:
+Transcribe every piece of visible text from the document, preserving:
 - Headers, addresses, dates, reference numbers
 - All line items (descriptions, quantities, prices)
 - Totals, tax amounts, payment terms
 - Any handwritten notes or stamps
-- Preserve the document structure (use newlines, indentation)
+- Use newlines to separate sections; use single spaces (not tabs) for alignment
 
 ## OUTPUT FORMAT (JSON)
 {
@@ -66,15 +66,64 @@ Transcribe every piece of visible text from the document images, preserving:
 }
 
 IMPORTANT:
-- The documents are scanned images of business documents (German or English).
+- The documents may be scanned images of business documents (German or English).
 - Extract text EXACTLY as written.
 - For multi-page documents, separate pages with "--- Page N ---" markers.
 - Amount formats: keep original format (1.234,56 or 1,234.56).
+- Do NOT pad with tabs, trailing spaces, or repeated whitespace. Keep output compact.
 `;
 
 export interface PdfAttachment {
     content: Buffer;
     filename: string;
+}
+
+/**
+ * Attempt to parse JSON, with recovery for truncated responses.
+ *
+ * When the model hits max_output_tokens the JSON string may be cut off
+ * mid-value (e.g. an unterminated string). This function:
+ * 1. Collapses runs of whitespace/tabs that bloat the output
+ * 2. Tries a normal JSON.parse
+ * 3. On failure, attempts to close any open strings / braces so we can
+ *    still recover document_type, confidence, and key_signal.
+ */
+function safeParseJson(raw: string): Record<string, any> {
+    // Collapse excessive whitespace runs (model sometimes emits thousands of tabs)
+    const cleaned = raw.replace(/[\t ]{10,}/g, " ");
+
+    try {
+        return JSON.parse(cleaned);
+    } catch {
+        logger.warn(
+            { rawLength: raw.length, cleanedLength: cleaned.length },
+            "JSON parse failed — attempting truncated-JSON recovery"
+        );
+    }
+
+    // Recovery: try to close the JSON properly
+    let repaired = cleaned;
+
+    // If we're inside an unterminated string, close it
+    const lastQuote = repaired.lastIndexOf('"');
+    const afterLastQuote = repaired.substring(lastQuote + 1).trim();
+    if (lastQuote > 0 && !afterLastQuote.startsWith(":") && !afterLastQuote.startsWith(",") && !afterLastQuote.startsWith("}")) {
+        repaired = repaired.substring(0, lastQuote + 1);
+    }
+
+    // Close any open braces/brackets
+    const opens = (repaired.match(/{/g) || []).length;
+    const closes = (repaired.match(/}/g) || []).length;
+    for (let i = 0; i < opens - closes; i++) {
+        repaired += "}";
+    }
+
+    try {
+        return JSON.parse(repaired);
+    } catch {
+        logger.error("JSON recovery also failed — returning empty object");
+        return {};
+    }
 }
 
 export class OpenAIService {
@@ -132,13 +181,16 @@ export class OpenAIService {
                 ],
                 text: { format: { type: "json_object" } },
                 temperature: 0.1,
-                max_output_tokens: 4096,
+                max_output_tokens: 16384,
                 store: false,
             });
 
             const raw = response.output_text || "{}";
-            logger.info({ rawResponse: raw }, "OpenAI Vision raw response");
-            const parsed = JSON.parse(raw);
+            logger.info(
+                { rawResponseLength: raw.length, rawResponsePreview: raw.substring(0, 500) },
+                "OpenAI Vision raw response"
+            );
+            const parsed = safeParseJson(raw);
 
             return {
                 classification: {
