@@ -20,7 +20,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const VISION_MODEL = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
 
 export interface DocumentClassification {
-    type: "INVOICE" | "QUOTE" | "OTHER";
+    type: "INVOICE" | "QUOTE" | "OTHER" | "ERROR";
     confidence: number;
     key_signal: string;
 }
@@ -31,23 +31,23 @@ export interface VisionExtractionResult {
 }
 
 const CLASSIFY_AND_EXTRACT_SYSTEM_PROMPT = `
-You are a German document analyzer for a property management company (Hausverwaltung).
+You are a document analyzer for a property management company.
 
 ## TASK 1: CLASSIFY the document
-Look for these keywords:
+Look for these keywords (German OR English):
 
-INVOICE (Rechnung):
-- "Rechnung", "Rechnungsnummer", "Rechnungsdatum"
-- "Endsumme", "Zahlbar bis", "Zahlungsziel"
-- "Nettobetrag", "Bruttobetrag", "MwSt"
-- "Beitragsrechnung" (insurance premium invoice)
-- "Jahresrechnung", "Abrechnung"
+INVOICE (Rechnung / Invoice):
+- "Rechnung", "Invoice", "Bill", "Tax Invoice"
+- "Rechnungsnummer", "Invoice Number", "Rechnungsdatum", "Invoice Date"
+- "Endsumme", "Total", "Amount Due", "Payable by", "Zahlbar bis"
+- "Nettobetrag", "Bruttobetrag", "MwSt", "VAT", "Tax"
+- "Beitragsrechnung", "Jahresrechnung", "Abrechnung"
 
-QUOTE (Angebot/Kostenvoranschlag):
-- "Angebot", "Kostenvoranschlag"
-- "unverbindlich", "Gültig bis"
+QUOTE (Angebot / Quote):
+- "Angebot", "Kostenvoranschlag", "Quote", "Estimate", "Proposal"
+- "unverbindlich", "Gültig bis", "Valid until", "Expiration date"
 
-OTHER: Work orders, delivery notes, correspondence.
+OTHER: Work orders, delivery notes, correspondence, generic emails.
 
 ## TASK 2: EXTRACT all visible text
 Transcribe every piece of visible text from the document images, preserving:
@@ -66,10 +66,10 @@ Transcribe every piece of visible text from the document images, preserving:
 }
 
 IMPORTANT:
-- The documents are scanned images of German business documents.
-- Extract text EXACTLY as written (preserve German characters, numbers, dates).
+- The documents are scanned images of business documents (German or English).
+- Extract text EXACTLY as written.
 - For multi-page documents, separate pages with "--- Page N ---" markers.
-- Amount formats: keep original German format (1.234,56) in the text.
+- Amount formats: keep original format (1.234,56 or 1,234.56).
 `;
 
 export class OpenAIService {
@@ -120,6 +120,7 @@ export class OpenAIService {
             });
 
             const raw = response.choices[0]?.message?.content || "{}";
+            logger.info({ rawResponse: raw }, "OpenAI Vision raw response");
             const parsed = JSON.parse(raw);
 
             return {
@@ -130,9 +131,19 @@ export class OpenAIService {
                 },
                 extracted_text: parsed.extracted_text || "",
             };
-        } catch (error) {
-            logger.error({ err: error }, "OpenAI Vision classification failed");
-            throw error;
+        } catch (error: any) {
+            logger.error({ err: error }, "OpenAI Vision classification failed - falling back to OTHER");
+
+            // Graceful fallback prevents the entire email processing from failing
+            // if the AI service is down or misconfigured (e.g. invalid API key).
+            return {
+                classification: {
+                    type: "ERROR",
+                    confidence: 0,
+                    key_signal: `Error: ${error.message || "Unknown error"}`,
+                },
+                extracted_text: "",
+            };
         }
     }
 }

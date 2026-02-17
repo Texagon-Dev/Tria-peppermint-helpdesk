@@ -907,6 +907,15 @@ export class ImapService {
           'PATH B: OpenAI Vision classification + text extraction complete'
         );
 
+        // ABORT if AI failed 
+        if (classification.type === "ERROR") {
+          logger.warn(
+            { senderEmail, error: classification.key_signal },
+            "PATH B: OpenAI Vision failed — skipping webhook trigger as per configuration"
+          );
+          return;
+        }
+
         // Fire dedicated invoice_received webhook directly to UC3
         await this.fireInvoiceWebhook(
           senderEmail,
@@ -917,7 +926,7 @@ export class ImapService {
           senderEntity!,
           senderType!,
           classification,
-          extracted_text  // ← NEW signature
+          extracted_text
         );
 
         return; // STOP — no ticket creation for Path B
