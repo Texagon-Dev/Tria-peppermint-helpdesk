@@ -67,7 +67,10 @@ export async function convertPdfToImages(
 
     const pngPages = await pdfToPng(arrayBuffer, {
       pagesToProcess,
-      // Do not write to disk — we only need in-memory buffers
+      viewportScale: 2.0, // Increase resolution
+      // Try to fix rendering issues
+      disableFontFace: false, // Use built-in font renderer
+      useSystemFonts: true,   // Fallback to system fonts
     });
 
     // Convert each page's PNG buffer to a data URI (skip pages without content)
