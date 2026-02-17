@@ -72,29 +72,47 @@ IMPORTANT:
 - Amount formats: keep original format (1.234,56 or 1,234.56).
 `;
 
+export interface PdfAttachment {
+    content: Buffer;
+    filename: string;
+}
+
 export class OpenAIService {
     /**
-     * Single combined call: classify + extract text from PDF page images.
-     * Uses ONE OpenAI Vision API call to do both tasks (cost-efficient).
+     * Single combined call: classify + extract text from PDF attachments.
      *
-     * @param base64Images - Array of data URIs ("data:image/png;base64,...")
+     * Sends raw PDF files directly to OpenAI via the Responses API `input_file`
+     * content type. OpenAI internally extracts both text and page images from
+     * each PDF, giving the model full context without requiring server-side
+     * PDF-to-image conversion (eliminates the canvas/native-lib dependency).
+     *
+     * @param pdfAttachments - Array of raw PDF buffers with filenames
      * @returns Classification + full extracted text
      */
     static async classifyAndExtract(
-        base64Images: string[]
+        pdfAttachments: PdfAttachment[]
     ): Promise<VisionExtractionResult> {
-        if (base64Images.length === 0) {
+        if (pdfAttachments.length === 0) {
             return {
-                classification: { type: "OTHER", confidence: 0, key_signal: "no images" },
+                classification: { type: "OTHER", confidence: 0, key_signal: "no attachments" },
                 extracted_text: "",
             };
         }
 
-        const imageInputs = base64Images.map((dataUri) => ({
-            type: "input_image" as const,
-            image_url: dataUri,
-            detail: "high" as const,
+        const fileInputs = pdfAttachments.map((att) => ({
+            type: "input_file" as const,
+            filename: att.filename,
+            file_data: `data:application/pdf;base64,${att.content.toString("base64")}`,
         }));
+
+        logger.info(
+            {
+                fileCount: pdfAttachments.length,
+                filenames: pdfAttachments.map((a) => a.filename),
+                totalBytes: pdfAttachments.reduce((sum, a) => sum + a.content.length, 0),
+            },
+            "Sending PDF files directly to OpenAI Responses API"
+        );
 
         try {
             const response = await openai.responses.create({
@@ -106,9 +124,9 @@ export class OpenAIService {
                         content: [
                             {
                                 type: "input_text" as const,
-                                text: "Analyze the following document page images. Classify the document and extract ALL visible text. Respond in JSON format.",
+                                text: "Analyze the following PDF document(s). Classify the document and extract ALL visible text. Respond in JSON format.",
                             },
-                            ...imageInputs,
+                            ...fileInputs,
                         ],
                     },
                 ],
@@ -133,8 +151,6 @@ export class OpenAIService {
         } catch (error: any) {
             logger.error({ err: error }, "OpenAI Vision classification failed - falling back to OTHER");
 
-            // Graceful fallback prevents the entire email processing from failing
-            // if the AI service is down or misconfigured (e.g. invalid API key).
             return {
                 classification: {
                     type: "ERROR",
