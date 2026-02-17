@@ -28,14 +28,13 @@ export interface PdfImageResult {
   images: string[];
 }
 
-
-
 /**
  * Convert a PDF buffer into an array of Base64-encoded PNG data-URI strings.
  *
- * Uses `pdf-to-png-converter` which is built on top of Mozilla's PDF.js —
- * **no external binary or OS dependencies** (no Ghostscript, no Puppeteer,
- * no native canvas). Works on Windows, Linux, and macOS without extra setup.
+ * Uses `pdf-to-img` (v5) which is built on top of Mozilla's pdfjs-dist with
+ * the `canvas` npm package for high-fidelity server-side rendering.
+ * Produces significantly better output for scanned documents, complex fonts,
+ * and layered PDFs compared to lighter JS-only renderers.
  *
  * @param content - Raw PDF file bytes
  * @param maxPages - Maximum number of pages to render (default: 3)
@@ -46,46 +45,33 @@ export async function convertPdfToImages(
   maxPages: number = MAX_PAGES_TO_CONVERT
 ): Promise<string[]> {
   try {
-    // Dynamic import — pdf-to-png-converter is ESM-only
-    const { pdfToPng } = await import("pdf-to-png-converter");
-
-    // Build 1-indexed page numbers: [1, 2, 3, ...]
-    const pagesToProcess = Array.from({ length: maxPages }, (_, i) => i + 1);
+    // Dynamic import — pdf-to-img is ESM-only
+    const { pdf } = await import("pdf-to-img");
 
     logger.info(
       { contentSize: content.length, maxPages },
-      "Converting PDF to PNG images"
+      "Converting PDF to PNG images via pdf-to-img"
     );
 
-    // pdfToPng expects string | ArrayBufferLike — convert Node.js Buffer
-    // to a proper ArrayBuffer (Buffer.buffer may be a shared allocation,
-    // so slice to get an exact-sized copy)
-    const arrayBuffer = content.buffer.slice(
-      content.byteOffset,
-      content.byteOffset + content.byteLength
-    );
+    // pdf-to-img accepts Buffer directly (internally converts to Uint8Array)
+    const document = await pdf(content, { scale: 2.0 });
 
-    const pngPages = await pdfToPng(arrayBuffer, {
-      pagesToProcess,
-      viewportScale: 2.0, // Increase resolution
-      // Try to fix rendering issues
-      disableFontFace: false, // Use built-in font renderer
-      useSystemFonts: true,   // Fallback to system fonts
-    });
+    const dataUris: string[] = [];
+    let pageCount = 0;
 
-    // Convert each page's PNG buffer to a data URI (skip pages without content)
-    const dataUris = pngPages
-      .filter((page) => page.content && page.content.length > 0)
-      .map((page) => {
-        const base64 = page.content!.toString("base64");
-        return `data:image/png;base64,${base64}`;
-      });
+    for await (const image of document) {
+      if (pageCount >= maxPages) break;
+      const base64 = image.toString("base64");
+      dataUris.push(`data:image/png;base64,${base64}`);
+      pageCount++;
+    }
 
     logger.info(
       {
         pagesConverted: dataUris.length,
+        totalPages: document.length,
         firstPageLength: dataUris[0]?.length || 0,
-        firstPagePrefix: dataUris[0]?.substring(0, 50)
+        firstPagePrefix: dataUris[0]?.substring(0, 50),
       },
       "PDF to PNG conversion successful"
     );
@@ -107,19 +93,19 @@ export async function convertPdfToImages(
 export async function extractPdfImages(
   attachments: { contentType?: string; filename?: string; content: Buffer }[]
 ): Promise<PdfImageResult[]> {
-  const pdfs = attachments.filter((a) => {
+  const pdfAttachments = attachments.filter((a) => {
     const type = (a.contentType || "").toLowerCase();
     const name = (a.filename || "").toLowerCase();
     return type.startsWith("application/pdf") || name.endsWith(".pdf");
   });
 
-  if (pdfs.length === 0) return [];
+  if (pdfAttachments.length === 0) return [];
 
   const results: PdfImageResult[] = [];
 
-  for (const pdf of pdfs) {
-    const filename = pdf.filename || "document.pdf";
-    const images = await convertPdfToImages(pdf.content);
+  for (const attachment of pdfAttachments) {
+    const filename = attachment.filename || "document.pdf";
+    const images = await convertPdfToImages(attachment.content);
     if (images.length > 0) {
       results.push({ filename, images });
     }
@@ -127,5 +113,3 @@ export async function extractPdfImages(
 
   return results;
 }
-
-
