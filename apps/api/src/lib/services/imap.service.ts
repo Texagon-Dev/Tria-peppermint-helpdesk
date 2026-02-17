@@ -9,8 +9,7 @@ import { sendWebhookNotification } from "../notifications/webhook";
 import { TicketPriority } from "../types/ticket";
 import pino from "pino";
 import { Ticket, TicketStatus, Webhooks } from "@prisma/client";
-import { extractPdfImages } from "./pdf-converter.service";
-import { OpenAIService, DocumentClassification } from "./openai.service";
+import { OpenAIService, DocumentClassification, PdfAttachment } from "./openai.service";
 
 // Custom serializer to handle BigInt values in pino
 const logger = pino({
@@ -717,12 +716,17 @@ export class ImapService {
             'Switchboard PATH A: Invoice expected — enriching webhook payload'
           );
 
-          // Convert PDFs to PNG images (kept in-memory for OpenAI Vision)
-          const pdfImageResults = await extractPdfImages(parsed.attachments || []);
+          // Extract raw PDF buffers for direct OpenAI processing (no image conversion needed)
+          const pdfAttachments: PdfAttachment[] = (parsed.attachments || [])
+            .filter((a) => {
+              const type = (a.contentType || "").toLowerCase();
+              const name = (a.filename || "").toLowerCase();
+              return type.startsWith("application/pdf") || name.endsWith(".pdf");
+            })
+            .map((a) => ({ content: a.content, filename: a.filename || "document.pdf" }));
 
-          // NEW: Use OpenAI Vision to classify + extract text (replaces Flowise Agent 1 + vision)
-          const allImages = pdfImageResults.flatMap((r) => r.images);
-          const { classification, extracted_text } = await OpenAIService.classifyAndExtract(allImages);
+          // Send PDFs directly to OpenAI Responses API (input_file) for classification + text extraction
+          const { classification, extracted_text } = await OpenAIService.classifyAndExtract(pdfAttachments);
 
           logger.info(
             {
@@ -734,7 +738,7 @@ export class ImapService {
             'PATH A: OpenAI Vision classification + text extraction complete'
           );
 
-          const pdfFilenames = pdfImageResults.map((p) => p.filename).join(', ');
+          const pdfFilenames = pdfAttachments.map((p) => p.filename).join(', ');
 
           // Create invoice-received comment (shows PDF name, not raw parsed text)
           const invoiceCommentText = `📄 Invoice received — ${pdfFilenames}`;
@@ -891,12 +895,17 @@ export class ImapService {
           },
         });
 
-        // Convert PDFs to PNG images (kept in-memory for OpenAI Vision)
-        const pdfImageResults = await extractPdfImages(parsed.attachments || []);
-        const allImages = pdfImageResults.flatMap((r) => r.images);
+        // Extract raw PDF buffers for direct OpenAI processing (no image conversion needed)
+        const pdfAttachments: PdfAttachment[] = (parsed.attachments || [])
+          .filter((a) => {
+            const type = (a.contentType || "").toLowerCase();
+            const name = (a.filename || "").toLowerCase();
+            return type.startsWith("application/pdf") || name.endsWith(".pdf");
+          })
+          .map((a) => ({ content: a.content, filename: a.filename || "document.pdf" }));
 
-        // NEW: Classify + extract text via OpenAI Vision
-        const { classification, extracted_text } = await OpenAIService.classifyAndExtract(allImages);
+        // Send PDFs directly to OpenAI Responses API (input_file) for classification + text extraction
+        const { classification, extracted_text } = await OpenAIService.classifyAndExtract(pdfAttachments);
 
         logger.info(
           {
