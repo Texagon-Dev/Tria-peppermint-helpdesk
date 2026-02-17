@@ -9,7 +9,8 @@ import { sendWebhookNotification } from "../notifications/webhook";
 import { TicketPriority } from "../types/ticket";
 import pino from "pino";
 import { Ticket, TicketStatus, Webhooks } from "@prisma/client";
-import { extractPdfImages, toFlowiseUploads, FlowiseUpload } from "./pdf-converter.service";
+import { extractPdfImages } from "./pdf-converter.service";
+import { OpenAIService, DocumentClassification } from "./openai.service";
 
 // Custom serializer to handle BigInt values in pino
 const logger = pino({
@@ -507,7 +508,8 @@ export class ImapService {
     emailDate: Date | undefined,
     senderEntity: { id: string; name: string; email: string },
     senderType: 'vendor' | 'utility',
-    uploads: FlowiseUpload[]
+    classification: DocumentClassification,
+    extractedText: string
   ) {
     const webhooks = await prisma.webhooks.findMany({
       where: { type: 'invoice_received', active: true },
@@ -522,7 +524,12 @@ export class ImapService {
             id: senderEntity.id,
             name: senderEntity.name,
           },
-          uploads: uploads,
+          // uploads: uploads, // REMOVED
+          // NEW:
+          document_classification: classification.type,
+          document_confidence: classification.confidence,
+          classification_signal: classification.key_signal,
+          extracted_text: extractedText,
           ticketId: null, // No ticket — standalone
           emailBody: baseText,
           emailSubject: emailSubject,
@@ -530,7 +537,7 @@ export class ImapService {
           emailDate: emailDate?.toISOString() || null,
         };
         logger.info(
-          { url: webhook.url, senderType, senderName: senderEntity.name, uploadCount: uploads.length },
+          { url: webhook.url, senderType, senderName: senderEntity.name, documentType: classification.type },
           'Triggering invoice_received webhook (Path B — standalone)'
         );
         await sendWebhookNotification(webhook, message);
@@ -710,9 +717,23 @@ export class ImapService {
             'Switchboard PATH A: Invoice expected — enriching webhook payload'
           );
 
-          // Convert PDFs to PNG images for Flowise Vision models
+          // Convert PDFs to PNG images (kept in-memory for OpenAI Vision)
           const pdfImageResults = await extractPdfImages(parsed.attachments || []);
-          const uploads = toFlowiseUploads(pdfImageResults);
+
+          // NEW: Use OpenAI Vision to classify + extract text (replaces Flowise Agent 1 + vision)
+          const allImages = pdfImageResults.flatMap((r) => r.images);
+          const { classification, extracted_text } = await OpenAIService.classifyAndExtract(allImages);
+
+          logger.info(
+            {
+              ticketId: matchedTicket.id,
+              documentType: classification.type,
+              confidence: classification.confidence,
+              textLength: extracted_text.length,
+            },
+            'PATH A: OpenAI Vision classification + text extraction complete'
+          );
+
           const pdfFilenames = pdfImageResults.map((p) => p.filename).join(', ');
 
           // Create invoice-received comment (shows PDF name, not raw parsed text)
@@ -768,10 +789,14 @@ export class ImapService {
                 has_pdf: true,
                 maintenance_status: maintenanceStatus,
                 is_invoice_expected: true,
-                uploads: uploads,
+                document_classification: classification.type,
+                document_confidence: classification.confidence,
+                classification_signal: classification.key_signal,
+                extracted_text: extracted_text,
+                // uploads: uploads, // REMOVED
               };
               logger.info(
-                { url: webhook.url, senderType, uploadCount: uploads.length },
+                { url: webhook.url, senderType, documentType: classification.type },
                 'PATH A: Triggering enriched ticket_reply_received webhook'
               );
               await sendWebhookNotification(webhook, message);
@@ -866,9 +891,21 @@ export class ImapService {
           },
         });
 
-        // Convert PDFs to PNG images for Flowise Vision models
+        // Convert PDFs to PNG images (kept in-memory for OpenAI Vision)
         const pdfImageResults = await extractPdfImages(parsed.attachments || []);
-        const uploads = toFlowiseUploads(pdfImageResults);
+        const allImages = pdfImageResults.flatMap((r) => r.images);
+
+        // NEW: Classify + extract text via OpenAI Vision
+        const { classification, extracted_text } = await OpenAIService.classifyAndExtract(allImages);
+
+        logger.info(
+          {
+            senderEmail,
+            documentType: classification.type,
+            confidence: classification.confidence,
+          },
+          'PATH B: OpenAI Vision classification + text extraction complete'
+        );
 
         // Fire dedicated invoice_received webhook directly to UC3
         await this.fireInvoiceWebhook(
@@ -879,7 +916,8 @@ export class ImapService {
           parsed.date,
           senderEntity!,
           senderType!,
-          uploads
+          classification,
+          extracted_text  // ← NEW signature
         );
 
         return; // STOP — no ticket creation for Path B

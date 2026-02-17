@@ -28,19 +28,7 @@ export interface PdfImageResult {
   images: string[];
 }
 
-/**
- * A single Flowise-compatible upload object.
- */
-export interface FlowiseUpload {
-  /** Base64 data URI */
-  data: string;
-  /** MIME type */
-  mime: string;
-  /** Display filename */
-  name: string;
-  /** Flowise upload type */
-  type: "file";
-}
+
 
 /**
  * Convert a PDF buffer into an array of Base64-encoded PNG data-URI strings.
@@ -133,28 +121,4 @@ export async function extractPdfImages(
   return results;
 }
 
-/**
- * Transform PdfImageResult[] into the flat Flowise `uploads` array format.
- *
- * Each page becomes a separate upload object:
- * ```json
- * {
- *   "data": "data:image/png;base64,...",
- *   "type": "file",
- *   "name": "invoice.pdf_page1.png",
- *   "mime": "image/png"
- * }
- * ```
- */
-export function toFlowiseUploads(
-  pdfImageResults: PdfImageResult[]
-): FlowiseUpload[] {
-  return pdfImageResults.flatMap((doc) =>
-    doc.images.map((base64DataUri, index) => ({
-      data: base64DataUri,
-      type: "file" as const,
-      name: `${doc.filename}_page${index + 1}.png`,
-      mime: "image/png",
-    }))
-  );
-}
+
