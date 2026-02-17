@@ -79,7 +79,11 @@ export async function convertPdfToImages(
       });
 
     logger.info(
-      { pagesConverted: dataUris.length },
+      {
+        pagesConverted: dataUris.length,
+        firstPageLength: dataUris[0]?.length || 0,
+        firstPagePrefix: dataUris[0]?.substring(0, 50)
+      },
       "PDF to PNG conversion successful"
     );
 
