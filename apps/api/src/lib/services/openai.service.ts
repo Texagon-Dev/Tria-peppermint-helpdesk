@@ -90,36 +90,35 @@ export class OpenAIService {
             };
         }
 
-        const imageMessages = base64Images.map((dataUri) => ({
-            type: "image_url" as const,
-            image_url: { url: dataUri, detail: "high" as const },
+        const imageInputs = base64Images.map((dataUri) => ({
+            type: "input_image" as const,
+            image_url: dataUri,
+            detail: "high" as const,
         }));
 
         try {
-            const response = await openai.chat.completions.create({
+            const response = await openai.responses.create({
                 model: VISION_MODEL,
-                max_tokens: 4096,
-                temperature: 0.1,
-                messages: [
-                    {
-                        role: "system",
-                        content: CLASSIFY_AND_EXTRACT_SYSTEM_PROMPT,
-                    },
+                instructions: CLASSIFY_AND_EXTRACT_SYSTEM_PROMPT,
+                input: [
                     {
                         role: "user",
                         content: [
                             {
-                                type: "text",
+                                type: "input_text" as const,
                                 text: "Analyze the following document page images. Classify the document and extract ALL visible text.",
                             },
-                            ...imageMessages,
+                            ...imageInputs,
                         ],
                     },
                 ],
-                response_format: { type: "json_object" },
+                text: { format: { type: "json_object" } },
+                temperature: 0.1,
+                max_output_tokens: 4096,
+                store: false,
             });
 
-            const raw = response.choices[0]?.message?.content || "{}";
+            const raw = response.output_text || "{}";
             logger.info({ rawResponse: raw }, "OpenAI Vision raw response");
             const parsed = JSON.parse(raw);
 
