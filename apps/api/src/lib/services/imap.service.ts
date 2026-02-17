@@ -9,6 +9,7 @@ import { sendWebhookNotification } from "../notifications/webhook";
 import { TicketPriority } from "../types/ticket";
 import pino from "pino";
 import { Ticket, TicketStatus, Webhooks } from "@prisma/client";
+import { extractPdfImages, toFlowiseUploads, FlowiseUpload } from "./pdf-converter.service";
 
 // Custom serializer to handle BigInt values in pino
 const logger = pino({
@@ -496,6 +497,7 @@ export class ImapService {
   /**
    * Fire dedicated invoice_received webhook for Path B (standalone invoices).
    * Queries all active webhooks of type 'invoice_received' and sends the payload.
+   * Sends PDF pages as PNG images in Flowise `uploads` format.
    */
   private static async fireInvoiceWebhook(
     senderEmail: string,
@@ -505,7 +507,7 @@ export class ImapService {
     emailDate: Date | undefined,
     senderEntity: { id: string; name: string; email: string },
     senderType: 'vendor' | 'utility',
-    pdfData: { filename: string; content: string; contentType: string }[]
+    uploads: FlowiseUpload[]
   ) {
     const webhooks = await prisma.webhooks.findMany({
       where: { type: 'invoice_received', active: true },
@@ -520,7 +522,7 @@ export class ImapService {
             id: senderEntity.id,
             name: senderEntity.name,
           },
-          pdf_files: pdfData,
+          uploads: uploads,
           ticketId: null, // No ticket — standalone
           emailBody: baseText,
           emailSubject: emailSubject,
@@ -528,7 +530,7 @@ export class ImapService {
           emailDate: emailDate?.toISOString() || null,
         };
         logger.info(
-          { url: webhook.url, senderType, senderName: senderEntity.name },
+          { url: webhook.url, senderType, senderName: senderEntity.name, uploadCount: uploads.length },
           'Triggering invoice_received webhook (Path B — standalone)'
         );
         await sendWebhookNotification(webhook, message);
@@ -708,8 +710,10 @@ export class ImapService {
             'Switchboard PATH A: Invoice expected — enriching webhook payload'
           );
 
-          const pdfData = this.extractPdfAttachmentData(parsed.attachments || []);
-          const pdfFilenames = pdfData.map((p) => p.filename).join(', ');
+          // Convert PDFs to PNG images for Flowise Vision models
+          const pdfImageResults = await extractPdfImages(parsed.attachments || []);
+          const uploads = toFlowiseUploads(pdfImageResults);
+          const pdfFilenames = pdfImageResults.map((p) => p.filename).join(', ');
 
           // Create invoice-received comment (shows PDF name, not raw parsed text)
           const invoiceCommentText = `📄 Invoice received — ${pdfFilenames}`;
@@ -764,10 +768,10 @@ export class ImapService {
                 has_pdf: true,
                 maintenance_status: maintenanceStatus,
                 is_invoice_expected: true,
-                pdf_files: pdfData,
+                uploads: uploads,
               };
               logger.info(
-                { url: webhook.url, senderType },
+                { url: webhook.url, senderType, uploadCount: uploads.length },
                 'PATH A: Triggering enriched ticket_reply_received webhook'
               );
               await sendWebhookNotification(webhook, message);
@@ -862,8 +866,11 @@ export class ImapService {
           },
         });
 
+        // Convert PDFs to PNG images for Flowise Vision models
+        const pdfImageResults = await extractPdfImages(parsed.attachments || []);
+        const uploads = toFlowiseUploads(pdfImageResults);
+
         // Fire dedicated invoice_received webhook directly to UC3
-        const pdfData = this.extractPdfAttachmentData(parsed.attachments || []);
         await this.fireInvoiceWebhook(
           senderEmail,
           emailSubject,
@@ -872,7 +879,7 @@ export class ImapService {
           parsed.date,
           senderEntity!,
           senderType!,
-          pdfData
+          uploads
         );
 
         return; // STOP — no ticket creation for Path B
