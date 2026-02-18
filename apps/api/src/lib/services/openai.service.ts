@@ -19,7 +19,9 @@ const logger = pino({
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // Responses API: https://platform.openai.com/docs/api-reference/responses
 // GPT-5.2: vision (image input), Structured Outputs, v1/responses
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL || "gpt-5.2";
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
+const MAX_ATTACHMENTS = 5;
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024; // 20MB
 
 export interface DocumentClassification {
     type: "INVOICE" | "QUOTE" | "OTHER" | "ERROR";
@@ -132,6 +134,37 @@ export class OpenAIService {
         if (pdfAttachments.length === 0) {
             return {
                 classification: { type: "OTHER", confidence: 0, key_signal: "no attachments" },
+                extracted_text: "",
+            };
+        }
+
+        if (pdfAttachments.length > MAX_ATTACHMENTS) {
+            logger.warn(
+                { count: pdfAttachments.length, max: MAX_ATTACHMENTS },
+                "OpenAI service rejected request: too many attachments"
+            );
+            return {
+                classification: {
+                    type: "ERROR",
+                    confidence: 0,
+                    key_signal: `Too many attachments (max ${MAX_ATTACHMENTS})`,
+                },
+                extracted_text: "",
+            };
+        }
+
+        const totalBytes = pdfAttachments.reduce((sum, a) => sum + a.content.length, 0);
+        if (totalBytes > MAX_TOTAL_BYTES) {
+            logger.warn(
+                { totalBytes, max: MAX_TOTAL_BYTES },
+                "OpenAI service rejected request: attachments too large"
+            );
+            return {
+                classification: {
+                    type: "ERROR",
+                    confidence: 0,
+                    key_signal: `Total attachment size exceeds limit (${(MAX_TOTAL_BYTES / 1024 / 1024).toFixed(0)}MB)`,
+                },
                 extracted_text: "",
             };
         }
