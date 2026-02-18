@@ -81,8 +81,9 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                 aiConfidence,
                 sourceType,
                 caseNumber,
-                vendorId,
-                utilityCompanyId,
+                vendorId: rawVendorId,
+                utilityCompanyId: rawUtilityCompanyId,
+                senderEmail,
                 items
             } = request.body;
 
@@ -93,6 +94,44 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     error: "invoiceNumber, invoiceDate, and grossTotal are required",
                 });
             }
+
+            // Layer 3: Email-based fallback lookup when no explicit IDs provided
+            let vendorId = rawVendorId;
+            let utilityCompanyId = rawUtilityCompanyId;
+
+            if (!vendorId && !utilityCompanyId && senderEmail) {
+                const vendor = await prisma.vendor.findFirst({
+                    where: { email: { equals: senderEmail, mode: 'insensitive' }, active: true },
+                    select: { id: true }
+                });
+                if (vendor) {
+                    vendorId = vendor.id;
+                    fastify.log.info(
+                        `[INVOICE] Linked via senderEmail fallback (${senderEmail} → vendor ${vendor.id})`
+                    );
+                } else {
+                    const utility = await prisma.utilityCompany.findFirst({
+                        where: { email: { equals: senderEmail, mode: 'insensitive' }, active: true },
+                        select: { id: true }
+                    });
+                    if (utility) {
+                        utilityCompanyId = utility.id;
+                        fastify.log.info(
+                            `[INVOICE] Linked via senderEmail fallback (${senderEmail} → utility ${utility.id})`
+                        );
+                    } else {
+                        fastify.log.warn(
+                            `[INVOICE] senderEmail ${senderEmail} did not match any vendor or utility — invoice will be unlinked`
+                        );
+                    }
+                }
+            }
+
+            const linkMethod = vendorId
+                ? (rawVendorId ? 'vendorId (direct)' : 'senderEmail fallback (vendor)')
+                : utilityCompanyId
+                    ? (rawUtilityCompanyId ? 'utilityCompanyId (direct)' : 'senderEmail fallback (utility)')
+                    : 'UNLINKED';
 
             try {
                 const invoice = await prisma.invoice.create({
@@ -155,6 +194,10 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                         },
                     },
                 });
+
+                fastify.log.info(
+                    `[INVOICE] Created invoice ${invoice.invoiceNumber} — linked via ${linkMethod}`
+                );
 
                 reply.send({ success: true, invoice });
             } catch (error: any) {
