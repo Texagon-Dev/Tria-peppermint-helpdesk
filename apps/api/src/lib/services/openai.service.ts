@@ -17,7 +17,9 @@ const logger = pino({
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
+// Responses API: https://platform.openai.com/docs/api-reference/responses
+// GPT-5.2: vision (image input), Structured Outputs, v1/responses
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL || "gpt-5.2";
 
 export interface DocumentClassification {
     type: "INVOICE" | "QUOTE" | "OTHER" | "ERROR";
@@ -31,7 +33,15 @@ export interface VisionExtractionResult {
 }
 
 const CLASSIFY_AND_EXTRACT_SYSTEM_PROMPT = `
-You are a document analyzer for a property management company.
+You are a high-precision OCR and document analyzer for a German property management company.
+
+## CRITICAL: ACCURACY RULES
+- You are an OCR engine. Transcribe ONLY what you can actually read in the document.
+- NEVER fabricate, guess, or hallucinate text that is not visible in the document.
+- If a word or number is unclear, write "[unclear]" instead of guessing.
+- Read every character carefully: names, addresses, numbers, and amounts must be EXACT.
+- Pay special attention to structured fields in boxes/tables (e.g. Kundennummer, Rechnungsnummer).
+- German invoices often have reference number boxes — read ALL fields inside them.
 
 ## TASK 1: CLASSIFY the document
 Look for these keywords (German OR English):
@@ -50,80 +60,58 @@ QUOTE (Angebot / Quote):
 OTHER: Work orders, delivery notes, correspondence, generic emails.
 
 ## TASK 2: EXTRACT all visible text
-Transcribe every piece of visible text from the document, preserving:
-- Headers, addresses, dates, reference numbers
-- All line items (descriptions, quantities, prices)
-- Totals, tax amounts, payment terms
-- Any handwritten notes or stamps
+Transcribe every piece of visible text from the document, preserving structure:
+- Company headers and logos (company name)
+- Sender address block (who sent the invoice)
+- Recipient address block (Herrn/Frau, name, street, city)
+- ALL reference number fields: Kundennummer, Rechnungsnummer, Vertragsnummer, Referenz, Auftragsnummer
+- Date fields: Rechnungsdatum, invoice date
+- Line item table: read EVERY column — Bezeichnung/description, Menge/quantity, Einzelpreis/unit price, Nettobetrag/total
+- Summary: Nettobetrag/Zwischensumme, Mehrwertsteuer/MwSt (rate + amount), Gesamtbetrag/Brutto
+- Payment terms: due date, bank details (IBAN, BIC, Bank name)
+- Tax info: Steuernummer, USt-IdNr
+- Footer text, stamps, handwritten notes
 - Use newlines to separate sections; use single spaces (not tabs) for alignment
 
-## OUTPUT FORMAT (JSON)
-{
-  "document_type": "invoice" | "quote" | "other",
-  "confidence": 0.0-1.0,
-  "key_signal": "Brief explanation of why this classification",
-  "extracted_text": "Full transcribed text from all pages, preserving structure"
-}
-
 IMPORTANT:
-- The documents may be scanned images of business documents (German or English).
-- Extract text EXACTLY as written.
+- The documents are scanned images of German business documents.
+- Transcribe EXACTLY what is printed — do NOT paraphrase or summarize.
+- Read numbers digit by digit: 530025335 is NOT 518,24.
+- Read names letter by letter: "Pleister" is NOT "Pfister".
 - For multi-page documents, separate pages with "--- Page N ---" markers.
-- Amount formats: keep original format (1.234,56 or 1,234.56).
+- Amount formats: keep original German format (1.234,56).
 - Do NOT pad with tabs, trailing spaces, or repeated whitespace. Keep output compact.
 `;
+
+// Structured Output schema (strict mode) — guarantees valid JSON matching this shape
+const EXTRACTION_SCHEMA = {
+    type: "object" as const,
+    properties: {
+        document_type: {
+            type: "string" as const,
+            enum: ["invoice", "quote", "other"],
+            description: "Classification of the document",
+        },
+        confidence: {
+            type: "number" as const,
+            description: "Classification confidence from 0.0 to 1.0",
+        },
+        key_signal: {
+            type: "string" as const,
+            description: "Brief explanation of why this classification was chosen",
+        },
+        extracted_text: {
+            type: "string" as const,
+            description: "Full transcribed text from all pages, preserving structure with newlines",
+        },
+    },
+    required: ["document_type", "confidence", "key_signal", "extracted_text"] as const,
+    additionalProperties: false as const,
+};
 
 export interface PdfAttachment {
     content: Buffer;
     filename: string;
-}
-
-/**
- * Attempt to parse JSON, with recovery for truncated responses.
- *
- * When the model hits max_output_tokens the JSON string may be cut off
- * mid-value (e.g. an unterminated string). This function:
- * 1. Collapses runs of whitespace/tabs that bloat the output
- * 2. Tries a normal JSON.parse
- * 3. On failure, attempts to close any open strings / braces so we can
- *    still recover document_type, confidence, and key_signal.
- */
-function safeParseJson(raw: string): Record<string, any> {
-    // Collapse excessive whitespace runs (model sometimes emits thousands of tabs)
-    const cleaned = raw.replace(/[\t ]{10,}/g, " ");
-
-    try {
-        return JSON.parse(cleaned);
-    } catch {
-        logger.warn(
-            { rawLength: raw.length, cleanedLength: cleaned.length },
-            "JSON parse failed — attempting truncated-JSON recovery"
-        );
-    }
-
-    // Recovery: try to close the JSON properly
-    let repaired = cleaned;
-
-    // If we're inside an unterminated string, close it
-    const lastQuote = repaired.lastIndexOf('"');
-    const afterLastQuote = repaired.substring(lastQuote + 1).trim();
-    if (lastQuote > 0 && !afterLastQuote.startsWith(":") && !afterLastQuote.startsWith(",") && !afterLastQuote.startsWith("}")) {
-        repaired = repaired.substring(0, lastQuote + 1);
-    }
-
-    // Close any open braces/brackets
-    const opens = (repaired.match(/{/g) || []).length;
-    const closes = (repaired.match(/}/g) || []).length;
-    for (let i = 0; i < opens - closes; i++) {
-        repaired += "}";
-    }
-
-    try {
-        return JSON.parse(repaired);
-    } catch {
-        logger.error("JSON recovery also failed — returning empty object");
-        return {};
-    }
 }
 
 export class OpenAIService {
@@ -131,9 +119,9 @@ export class OpenAIService {
      * Single combined call: classify + extract text from PDF attachments.
      *
      * Sends raw PDF files directly to OpenAI via the Responses API `input_file`
-     * content type. OpenAI internally extracts both text and page images from
-     * each PDF, giving the model full context without requiring server-side
-     * PDF-to-image conversion (eliminates the canvas/native-lib dependency).
+     * content type. Uses Structured Outputs (json_schema + strict) so the API
+     * guarantees a valid JSON response matching our schema — no manual JSON
+     * recovery needed.
      *
      * @param pdfAttachments - Array of raw PDF buffers with filenames
      * @returns Classification + full extracted text
@@ -160,7 +148,7 @@ export class OpenAIService {
                 filenames: pdfAttachments.map((a) => a.filename),
                 totalBytes: pdfAttachments.reduce((sum, a) => sum + a.content.length, 0),
             },
-            "Sending PDF files directly to OpenAI Responses API"
+            "Sending PDF files directly to OpenAI Responses API (Structured Outputs)"
         );
 
         try {
@@ -173,32 +161,46 @@ export class OpenAIService {
                         content: [
                             {
                                 type: "input_text" as const,
-                                text: "Analyze the following PDF document(s). Classify the document and extract ALL visible text. Respond in JSON format.",
+                                text: "Analyze the following PDF document(s). Classify the document and extract ALL visible text.",
                             },
                             ...fileInputs,
                         ],
                     },
                 ],
-                text: { format: { type: "json_object" } },
+                text: {
+                    format: {
+                        type: "json_schema",
+                        name: "document_extraction",
+                        strict: true,
+                        schema: EXTRACTION_SCHEMA,
+                    },
+                },
                 temperature: 0.1,
                 max_output_tokens: 16384,
                 store: false,
             });
 
-            const raw = response.output_text || "{}";
+            if (response.error) {
+                const errMsg = response.error.message || "Unknown API error";
+                logger.error({ error: response.error }, "OpenAI Responses API returned error object");
+                throw new Error(errMsg);
+            }
+
+            const raw = response.output_text ?? "{}";
             logger.info(
                 { rawResponseLength: raw.length, rawResponsePreview: raw.substring(0, 500) },
-                "OpenAI Vision raw response"
+                "OpenAI Structured Output response"
             );
-            const parsed = safeParseJson(raw);
+
+            const parsed = JSON.parse(raw);
 
             return {
                 classification: {
-                    type: (parsed.document_type?.toUpperCase() as any) || "OTHER",
-                    confidence: parsed.confidence || 0,
-                    key_signal: parsed.key_signal || "",
+                    type: (parsed.document_type?.toUpperCase() as DocumentClassification["type"]) || "OTHER",
+                    confidence: parsed.confidence ?? 0,
+                    key_signal: parsed.key_signal ?? "",
                 },
-                extracted_text: parsed.extracted_text || "",
+                extracted_text: parsed.extracted_text ?? "",
             };
         } catch (error: any) {
             logger.error({ err: error }, "OpenAI Vision classification failed - falling back to OTHER");
