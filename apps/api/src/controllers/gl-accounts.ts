@@ -191,7 +191,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
             // Return just the array of strings
             reply.send({
                 success: true,
-                classes: classes.map(c => c.accountClass).filter(Boolean)
+                classes: classes.map(c => c.accountClass)
             });
         }
     );
