@@ -19,9 +19,9 @@ const logger = pino({
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // Responses API: https://platform.openai.com/docs/api-reference/responses
 // GPT-5.2: vision (image input), Structured Outputs, v1/responses
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
-const MAX_ATTACHMENTS = 5;
-const MAX_TOTAL_BYTES = 20 * 1024 * 1024; // 20MB
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL || "gpt-5.2";
+const MAX_ATTACHMENTS = 3;
+const MAX_TOTAL_BYTES = 10 * 1024 * 1024; // 10MB
 
 export interface DocumentClassification {
     type: "INVOICE" | "QUOTE" | "OTHER" | "ERROR";
