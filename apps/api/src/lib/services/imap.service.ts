@@ -192,6 +192,19 @@ export async function extractPdfText(attachments: Attachment[]): Promise<string>
 
 export class ImapService {
   /**
+   * Helper to extract PDF attachments from parsed email
+   */
+  private static _extractPdfAttachments(parsed: ParsedMail): PdfAttachment[] {
+    return (parsed.attachments || [])
+      .filter((a) => {
+        const type = (a.contentType || "").toLowerCase();
+        const name = (a.filename || "").toLowerCase();
+        return type.startsWith("application/pdf") || name.endsWith(".pdf");
+      })
+      .map((a) => ({ content: a.content, filename: a.filename || "document.pdf" }));
+  }
+
+  /**
    * Get IMAP configuration based on service type (Gmail OAuth or standard IMAP)
    */
   private static async getImapConfig(queue: EmailQueue): Promise<EmailConfig> {
@@ -717,13 +730,7 @@ export class ImapService {
           );
 
           // Extract raw PDF buffers for direct OpenAI processing (no image conversion needed)
-          const pdfAttachments: PdfAttachment[] = (parsed.attachments || [])
-            .filter((a) => {
-              const type = (a.contentType || "").toLowerCase();
-              const name = (a.filename || "").toLowerCase();
-              return type.startsWith("application/pdf") || name.endsWith(".pdf");
-            })
-            .map((a) => ({ content: a.content, filename: a.filename || "document.pdf" }));
+          const pdfAttachments: PdfAttachment[] = this._extractPdfAttachments(parsed);
 
           // Send PDFs directly to OpenAI Responses API (input_file) for classification + text extraction
           const { classification, extracted_text } = await OpenAIService.classifyAndExtract(pdfAttachments);
@@ -896,13 +903,7 @@ export class ImapService {
         });
 
         // Extract raw PDF buffers for direct OpenAI processing (no image conversion needed)
-        const pdfAttachments: PdfAttachment[] = (parsed.attachments || [])
-          .filter((a) => {
-            const type = (a.contentType || "").toLowerCase();
-            const name = (a.filename || "").toLowerCase();
-            return type.startsWith("application/pdf") || name.endsWith(".pdf");
-          })
-          .map((a) => ({ content: a.content, filename: a.filename || "document.pdf" }));
+        const pdfAttachments: PdfAttachment[] = this._extractPdfAttachments(parsed);
 
         // Send PDFs directly to OpenAI Responses API (input_file) for classification + text extraction
         const { classification, extracted_text } = await OpenAIService.classifyAndExtract(pdfAttachments);
