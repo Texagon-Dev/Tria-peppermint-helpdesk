@@ -87,7 +87,7 @@ export function invoiceRoutes(fastify: FastifyInstance) {
             } = request.body;
 
             // Validate required fields
-            if (!invoiceNumber || !invoiceDate || grossTotal === undefined) {
+            if (!invoiceNumber || !invoiceDate || grossTotal === undefined || grossTotal === null) {
                 return reply.status(400).send({
                     success: false,
                     error: "invoiceNumber, invoiceDate, and grossTotal are required",
