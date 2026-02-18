@@ -9,6 +9,7 @@ import { sendWebhookNotification } from "../notifications/webhook";
 import { TicketPriority } from "../types/ticket";
 import pino from "pino";
 import { Ticket, TicketStatus, Webhooks } from "@prisma/client";
+import { OpenAIService, DocumentClassification, PdfAttachment } from "./openai.service";
 
 // Custom serializer to handle BigInt values in pino
 const logger = pino({
@@ -190,6 +191,19 @@ export async function extractPdfText(attachments: Attachment[]): Promise<string>
 }
 
 export class ImapService {
+  /**
+   * Helper to extract PDF attachments from parsed email
+   */
+  private static _extractPdfAttachments(parsed: ParsedMail): PdfAttachment[] {
+    return (parsed.attachments || [])
+      .filter((a) => {
+        const type = (a.contentType || "").toLowerCase();
+        const name = (a.filename || "").toLowerCase();
+        return type.startsWith("application/pdf") || name.endsWith(".pdf");
+      })
+      .map((a) => ({ content: a.content, filename: a.filename || "document.pdf" }));
+  }
+
   /**
    * Get IMAP configuration based on service type (Gmail OAuth or standard IMAP)
    */
@@ -496,6 +510,7 @@ export class ImapService {
   /**
    * Fire dedicated invoice_received webhook for Path B (standalone invoices).
    * Queries all active webhooks of type 'invoice_received' and sends the payload.
+   * Sends PDF pages as PNG images in Flowise `uploads` format.
    */
   private static async fireInvoiceWebhook(
     senderEmail: string,
@@ -505,7 +520,8 @@ export class ImapService {
     emailDate: Date | undefined,
     senderEntity: { id: string; name: string; email: string },
     senderType: 'vendor' | 'utility',
-    pdfData: { filename: string; content: string; contentType: string }[]
+    classification: DocumentClassification,
+    extractedText: string
   ) {
     const webhooks = await prisma.webhooks.findMany({
       where: { type: 'invoice_received', active: true },
@@ -520,7 +536,12 @@ export class ImapService {
             id: senderEntity.id,
             name: senderEntity.name,
           },
-          pdf_files: pdfData,
+          // uploads: uploads, // REMOVED
+          // NEW:
+          document_classification: classification.type,
+          document_confidence: classification.confidence,
+          classification_signal: classification.key_signal,
+          extracted_text: extractedText,
           ticketId: null, // No ticket — standalone
           emailBody: baseText,
           emailSubject: emailSubject,
@@ -528,7 +549,7 @@ export class ImapService {
           emailDate: emailDate?.toISOString() || null,
         };
         logger.info(
-          { url: webhook.url, senderType, senderName: senderEntity.name },
+          { url: webhook.url, senderType, senderName: senderEntity.name, documentType: classification.type },
           'Triggering invoice_received webhook (Path B — standalone)'
         );
         await sendWebhookNotification(webhook, message);
@@ -708,8 +729,23 @@ export class ImapService {
             'Switchboard PATH A: Invoice expected — enriching webhook payload'
           );
 
-          const pdfData = this.extractPdfAttachmentData(parsed.attachments || []);
-          const pdfFilenames = pdfData.map((p) => p.filename).join(', ');
+          // Extract raw PDF buffers for direct OpenAI processing (no image conversion needed)
+          const pdfAttachments: PdfAttachment[] = this._extractPdfAttachments(parsed);
+
+          // Send PDFs directly to OpenAI Responses API (input_file) for classification + text extraction
+          const { classification, extracted_text } = await OpenAIService.classifyAndExtract(pdfAttachments);
+
+          logger.info(
+            {
+              ticketId: matchedTicket.id,
+              documentType: classification.type,
+              confidence: classification.confidence,
+              textLength: extracted_text.length,
+            },
+            'PATH A: OpenAI Vision classification + text extraction complete'
+          );
+
+          const pdfFilenames = pdfAttachments.map((p) => p.filename).join(', ');
 
           // Create invoice-received comment (shows PDF name, not raw parsed text)
           const invoiceCommentText = `📄 Invoice received — ${pdfFilenames}`;
@@ -764,10 +800,14 @@ export class ImapService {
                 has_pdf: true,
                 maintenance_status: maintenanceStatus,
                 is_invoice_expected: true,
-                pdf_files: pdfData,
+                document_classification: classification.type,
+                document_confidence: classification.confidence,
+                classification_signal: classification.key_signal,
+                extracted_text: extracted_text,
+                // uploads: uploads, // REMOVED
               };
               logger.info(
-                { url: webhook.url, senderType },
+                { url: webhook.url, senderType, documentType: classification.type },
                 'PATH A: Triggering enriched ticket_reply_received webhook'
               );
               await sendWebhookNotification(webhook, message);
@@ -862,8 +902,31 @@ export class ImapService {
           },
         });
 
+        // Extract raw PDF buffers for direct OpenAI processing (no image conversion needed)
+        const pdfAttachments: PdfAttachment[] = this._extractPdfAttachments(parsed);
+
+        // Send PDFs directly to OpenAI Responses API (input_file) for classification + text extraction
+        const { classification, extracted_text } = await OpenAIService.classifyAndExtract(pdfAttachments);
+
+        logger.info(
+          {
+            senderEmail,
+            documentType: classification.type,
+            confidence: classification.confidence,
+          },
+          'PATH B: OpenAI Vision classification + text extraction complete'
+        );
+
+        // ABORT if AI failed 
+        if (classification.type === "ERROR") {
+          logger.warn(
+            { senderEmail, error: classification.key_signal },
+            "PATH B: OpenAI Vision failed — skipping webhook trigger as per configuration"
+          );
+          return;
+        }
+
         // Fire dedicated invoice_received webhook directly to UC3
-        const pdfData = this.extractPdfAttachmentData(parsed.attachments || []);
         await this.fireInvoiceWebhook(
           senderEmail,
           emailSubject,
@@ -872,7 +935,8 @@ export class ImapService {
           parsed.date,
           senderEntity!,
           senderType!,
-          pdfData
+          classification,
+          extracted_text
         );
 
         return; // STOP — no ticket creation for Path B
