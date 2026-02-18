@@ -167,6 +167,35 @@ export function glAccountRoutes(fastify: FastifyInstance) {
         }
     );
 
+    // Get all distinct GL account classes (for AI agent / UI)
+    fastify.get(
+        "/api/v1/gl-accounts/classes",
+        {
+            preHandler: requireSession,
+        },
+        async (request, reply) => {
+            const classes = await prisma.gLAccount.findMany({
+                where: {
+                    active: true,
+                    accountClass: { not: "" } // Ensure we don't get empty strings if any
+                },
+                select: {
+                    accountClass: true
+                },
+                distinct: ['accountClass'],
+                orderBy: {
+                    accountClass: 'asc'
+                }
+            });
+
+            // Return just the array of strings
+            reply.send({
+                success: true,
+                classes: classes.map(c => c.accountClass)
+            });
+        }
+    );
+
     // Get GL accounts by account class (for AI agent filtering)
     // Get GL accounts by class (for AI agent) - REPLACED checkSession with stricter requireSession
     fastify.get<{ Params: IGLAccountClassParams }>(

@@ -176,6 +176,7 @@ export interface ICreateInvoiceBody {
     caseNumber?: string;
     vendorId?: string;
     utilityCompanyId?: string;
+    senderEmail?: string;
     items?: IInvoiceItemBody[];
 }
 

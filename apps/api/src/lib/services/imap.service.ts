@@ -534,6 +534,7 @@ export class ImapService {
           sender: {
             type: senderType,
             id: senderEntity.id,
+            email: senderEmail,
             name: senderEntity.name,
           },
           // uploads: uploads, // REMOVED
@@ -792,6 +793,7 @@ export class ImapService {
                 replyContent: invoiceCommentText,
                 sender: {
                   type: senderType!,
+                  id: senderEntity!.id,
                   email: senderEmail,
                   name: senderEntity!.name,
                 },
@@ -1178,7 +1180,8 @@ export class ImapService {
     messageId: string | null,
     inReplyTo: string | null,
     senderRole: 'customer' | 'vendor' | 'ai' | 'agent' = 'customer',
-    pdfText: string = ""
+    pdfText: string = "",
+    senderEntityId: string = ""
   ): Promise<void> {
     // Parse reply from original email text (without PDF content to avoid distorting reply detection)
     const replyText = getReplyText({ text: textContent });
@@ -1228,6 +1231,7 @@ export class ImapService {
           replyContent: commentText,
           sender: {
             type: senderRole,
+            id: senderEntityId || '',
             email: senderEmail,
             name: senderName,
           },
