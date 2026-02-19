@@ -620,30 +620,32 @@ export function invoiceRoutes(fastify: FastifyInstance) {
             // Handle preset date ranges
             if (preset) {
                 const now = new Date();
-                // Set end date to end of current day to be inclusive
                 now.setHours(23, 59, 59, 999);
                 endDate = now.toISOString();
 
-                // Calculate start date based on preset, normalized to start of day
                 const start = new Date();
                 start.setHours(0, 0, 0, 0);
 
                 switch (preset) {
                     case "1d":
-
                         start.setDate(start.getDate() - 1);
                         break;
                     case "7d":
                         start.setDate(start.getDate() - 7);
                         break;
                     case "30d":
-                        start.setDate(start.getDate() - 30);
+                        start.setMonth(start.getMonth() - 1);
                         break;
                     case "1y":
                         start.setFullYear(start.getFullYear() - 1);
                         break;
                 }
                 startDate = start.toISOString();
+            } else if (endDate && !endDate.includes("T")) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                endDate = end.toISOString();
+                console.log("[EXPORT] Adjusted custom endDate to:", endDate);
             }
 
             // Validate date parameters
@@ -662,22 +664,8 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     };
                 }
 
-                // Log incoming request for debugging
                 console.log("[EXPORT] Request:", { startDate, endDate, preset });
-
-                if (!preset && endDate) {
-                    // Start of day logic for start date is handled by parseDate + frontend usually sending YYYY-MM-DD
-                    // End of day logic for end date:
-                    if (endDate.includes("T")) {
-                        // It has time, assume it's correct or let it be
-                    } else {
-                        // It's just a date string, make it end of day
-                        const end = new Date(endDate);
-                        end.setHours(23, 59, 59, 999);
-                        endDate = end.toISOString();
-                        console.log("[EXPORT] Adjusted custom endDate to:", endDate);
-                    }
-                }
+                console.log("[EXPORT] Query where:", JSON.stringify(where, null, 2));
 
                 const invoices = await prisma.invoice.findMany({
                     where,
@@ -693,7 +681,6 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     orderBy: { invoiceDate: "asc" },
                 });
 
-                console.log("[EXPORT] Query where:", JSON.stringify(where, null, 2));
                 console.log("[EXPORT] Found invoices:", invoices.length);
 
 
