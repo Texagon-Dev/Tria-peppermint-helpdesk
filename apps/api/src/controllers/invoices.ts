@@ -745,7 +745,8 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     "caseNumber",
                     "itemCount",
                     "glAccounts",
-                    "glAccountSuggested"
+                    "glAccountSuggested",
+                    "GL Match Confidence"
                 ].join(",") + "\n";
 
                 const csvRows = invoices.map(inv =>
@@ -771,7 +772,8 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                         escapeCSV(inv.caseNumber),
                         escapeCSV(inv.items.length),
                         escapeCSV(getGLAccounts(inv.items)),
-                        escapeCSV(getSuggestedGLAccounts(inv.items))
+                        escapeCSV(getSuggestedGLAccounts(inv.items)),
+                        escapeCSV(inv.aiConfidence)
                     ].join(",")
                 ).join("\n");
 
