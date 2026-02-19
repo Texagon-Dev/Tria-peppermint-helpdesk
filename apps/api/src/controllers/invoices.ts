@@ -662,6 +662,23 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     };
                 }
 
+                // Log incoming request for debugging
+                console.log("[EXPORT] Request:", { startDate, endDate, preset });
+
+                if (!preset && endDate) {
+                    // Start of day logic for start date is handled by parseDate + frontend usually sending YYYY-MM-DD
+                    // End of day logic for end date:
+                    if (endDate.includes("T")) {
+                        // It has time, assume it's correct or let it be
+                    } else {
+                        // It's just a date string, make it end of day
+                        const end = new Date(endDate);
+                        end.setHours(23, 59, 59, 999);
+                        endDate = end.toISOString();
+                        console.log("[EXPORT] Adjusted custom endDate to:", endDate);
+                    }
+                }
+
                 const invoices = await prisma.invoice.findMany({
                     where,
                     include: {
@@ -675,6 +692,10 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     },
                     orderBy: { invoiceDate: "asc" },
                 });
+
+                console.log("[EXPORT] Query where:", JSON.stringify(where, null, 2));
+                console.log("[EXPORT] Found invoices:", invoices.length);
+
 
                 // Helper to escape CSV fields
                 const escapeCSV = (field: string | number | null | undefined) => {
