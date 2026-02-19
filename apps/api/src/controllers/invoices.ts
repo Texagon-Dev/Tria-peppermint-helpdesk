@@ -620,22 +620,37 @@ export function invoiceRoutes(fastify: FastifyInstance) {
             // Handle preset date ranges
             if (preset) {
                 const now = new Date();
+                // Set end date to end of current day to be inclusive
+                now.setHours(23, 59, 59, 999);
                 endDate = now.toISOString();
+
+                // Calculate start date based on preset, normalized to start of day
+                const start = new Date();
+                start.setHours(0, 0, 0, 0);
 
                 switch (preset) {
                     case "1d":
-                        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+                        // "1d" usually means "last 24h" or "today".
+                        // Given the issue description "new Date() - 30 days... preserving time",
+                        // the fix is to make it start at 00:00:00.
+                        // We'll treat 1d as "Today" (from 00:00) or "Last 24h" (from yesterday 00:00).
+                        // Let's assume start of *today* for 1d if strictly "today's invoices", 
+                        // but usually these filters are "Past X Days".
+                        // "Last 30 Days" = Today - 30 days @ 00:00.
+                        // "Last 1 Day" = Today - 1 day @ 00:00.
+                        start.setDate(start.getDate() - 1);
                         break;
                     case "7d":
-                        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+                        start.setDate(start.getDate() - 7);
                         break;
                     case "30d":
-                        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+                        start.setDate(start.getDate() - 30);
                         break;
                     case "1y":
-                        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
+                        start.setFullYear(start.getFullYear() - 1);
                         break;
                 }
+                startDate = start.toISOString();
             }
 
             // Validate date parameters
@@ -684,6 +699,28 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     return date.toISOString().split('T')[0];
                 };
 
+                // Helper to extract unique GL accounts
+                const getGLAccounts = (items: any[]) => {
+                    const accounts = new Set<string>();
+                    items.forEach(item => {
+                        if (item.glAccount?.code) {
+                            accounts.add(item.glAccount.code);
+                        }
+                    });
+                    return Array.from(accounts).join(", ");
+                };
+
+                // Helper to extract unique Suggested GL accounts
+                const getSuggestedGLAccounts = (items: any[]) => {
+                    const accounts = new Set<string>();
+                    items.forEach(item => {
+                        if (item.glAccountSuggested) {
+                            accounts.add(item.glAccountSuggested);
+                        }
+                    });
+                    return Array.from(accounts).join(", ");
+                };
+
                 // Build CSV content
                 const csvHeader = [
                     "invoiceNumber",
@@ -705,7 +742,9 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     "status",
                     "sourceType",
                     "caseNumber",
-                    "itemCount"
+                    "itemCount",
+                    "glAccounts",
+                    "glAccountSuggested"
                 ].join(",") + "\n";
 
                 const csvRows = invoices.map(inv =>
@@ -729,7 +768,9 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                         escapeCSV(inv.status),
                         escapeCSV(inv.sourceType),
                         escapeCSV(inv.caseNumber),
-                        escapeCSV(inv.items.length)
+                        escapeCSV(inv.items.length),
+                        escapeCSV(getGLAccounts(inv.items)),
+                        escapeCSV(getSuggestedGLAccounts(inv.items))
                     ].join(",")
                 ).join("\n");
 
