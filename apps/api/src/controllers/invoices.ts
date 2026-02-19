@@ -630,14 +630,7 @@ export function invoiceRoutes(fastify: FastifyInstance) {
 
                 switch (preset) {
                     case "1d":
-                        // "1d" usually means "last 24h" or "today".
-                        // Given the issue description "new Date() - 30 days... preserving time",
-                        // the fix is to make it start at 00:00:00.
-                        // We'll treat 1d as "Today" (from 00:00) or "Last 24h" (from yesterday 00:00).
-                        // Let's assume start of *today* for 1d if strictly "today's invoices", 
-                        // but usually these filters are "Past X Days".
-                        // "Last 30 Days" = Today - 30 days @ 00:00.
-                        // "Last 1 Day" = Today - 1 day @ 00:00.
+
                         start.setDate(start.getDate() - 1);
                         break;
                     case "7d":
