@@ -197,7 +197,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
     );
 
     // Get GL accounts by account class (for AI agent filtering)
-    // Get GL accounts by class (for AI agent) - REPLACED checkSession with stricter requireSession
+    // Accepts either the numeric class code (e.g. "8000") or the class name (e.g. "Aufwendungen")
     fastify.get<{ Params: IGLAccountClassParams }>(
         "/api/v1/gl-accounts/class/:accountClass",
         {
@@ -208,10 +208,14 @@ export function glAccountRoutes(fastify: FastifyInstance) {
 
             const accounts = await prisma.gLAccount.findMany({
                 where: {
-                    accountClass,
                     active: true,
+                    OR: [
+                        { accountClass },
+                        { accountClassName: { equals: accountClass, mode: 'insensitive' } },
+                    ],
                 },
                 orderBy: { code: "asc" },
+                select: { code: true, name: true, accountClassName: true, taxCode: true, taxRate: true },
             });
 
             reply.send({ success: true, accounts });
