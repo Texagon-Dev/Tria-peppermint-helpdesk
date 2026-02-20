@@ -829,9 +829,15 @@ export class ImapService {
             'Switchboard: Quote/pending status — routing to normal MOH flow'
           );
 
-          // Fall through to existing vendor reply behavior (comment + webhook without enrichment)
+          // Use OpenAI for PDF text when available (handles scanned quote PDFs); else fall back to pdf-parse
+          const pdfAttachments = this._extractPdfAttachments(parsed);
+          const quotePdfText = pdfAttachments.length > 0
+            ? await OpenAIService.extractTextFromPdfs(pdfAttachments)
+            : "";
+          const pdfContent = quotePdfText.length > 0 ? quotePdfText : pdfText;
+
           const replyText = getReplyText({ text: baseText });
-          const commentText = (replyText || baseText) + pdfText;
+          const commentText = (replyText || baseText) + escapeHtml(pdfContent);
 
           const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
             const createdComment = await tx.comment.create({
@@ -959,7 +965,7 @@ export class ImapService {
           );
 
           const replyText = getReplyText({ text: baseText });
-          const commentText = (replyText || baseText) + pdfText;
+          const commentText = (replyText || baseText) + escapeHtml(pdfText);
 
           const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
             const createdComment = await tx.comment.create({

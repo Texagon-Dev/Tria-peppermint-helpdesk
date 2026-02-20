@@ -620,22 +620,31 @@ export function invoiceRoutes(fastify: FastifyInstance) {
             // Handle preset date ranges
             if (preset) {
                 const now = new Date();
+                now.setHours(23, 59, 59, 999);
                 endDate = now.toISOString();
+
+                const start = new Date();
+                start.setHours(0, 0, 0, 0);
 
                 switch (preset) {
                     case "1d":
-                        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+                        start.setDate(start.getDate() - 1);
                         break;
                     case "7d":
-                        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+                        start.setDate(start.getDate() - 7);
                         break;
                     case "30d":
-                        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+                        start.setMonth(start.getMonth() - 1);
                         break;
                     case "1y":
-                        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
+                        start.setFullYear(start.getFullYear() - 1);
                         break;
                 }
+                startDate = start.toISOString();
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                endDate = end.toISOString();
+                fastify.log.debug({ endDate }, "[EXPORT] Adjusted custom endDate");
             }
 
             // Validate date parameters
@@ -654,6 +663,9 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     };
                 }
 
+                fastify.log.debug({ request: { startDate, endDate, preset } }, "[EXPORT] Request");
+                fastify.log.debug({ queryWhere: where }, "[EXPORT] Query where");
+
                 const invoices = await prisma.invoice.findMany({
                     where,
                     include: {
@@ -668,10 +680,19 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     orderBy: { invoiceDate: "asc" },
                 });
 
+                fastify.log.debug({ invoiceCount: invoices.length }, "[EXPORT] Found invoices");
+
+
                 // Helper to escape CSV fields
                 const escapeCSV = (field: string | number | null | undefined) => {
                     if (field === null || field === undefined) return "";
-                    const stringField = String(field);
+                    let stringField = String(field);
+
+                    // Fix: Prevent CSV Injection
+                    if (['=', '+', '-', '@'].includes(stringField.charAt(0))) {
+                        stringField = "'" + stringField;
+                    }
+
                     if (stringField.includes(",") || stringField.includes('"') || stringField.includes("\n")) {
                         return `"${stringField.replace(/"/g, '""')}"`;
                     }
@@ -683,6 +704,21 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     if (!date) return "";
                     return date.toISOString().split('T')[0];
                 };
+
+                // Generic helper to extract unique, comma-separated account codes from items
+                const getUniqueAccountCodes = (items: any[], keyAccessor: (item: any) => string | undefined | null) => {
+                    const accounts = new Set<string>();
+                    items.forEach(item => {
+                        const code = keyAccessor(item);
+                        if (code) accounts.add(code);
+                    });
+                    return Array.from(accounts).join(", ");
+                };
+
+                const getGLAccounts = (items: any[]) => getUniqueAccountCodes(items, (item) => item.glAccount?.code);
+
+                // Helper to extract unique Suggested GL accounts
+                const getSuggestedGLAccounts = (items: any[]) => getUniqueAccountCodes(items, (item) => item.glAccountSuggested);
 
                 // Build CSV content
                 const csvHeader = [
@@ -705,7 +741,10 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     "status",
                     "sourceType",
                     "caseNumber",
-                    "itemCount"
+                    "itemCount",
+                    "glAccounts",
+                    "glAccountSuggested",
+                    "GL Match Confidence"
                 ].join(",") + "\n";
 
                 const csvRows = invoices.map(inv =>
@@ -729,7 +768,10 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                         escapeCSV(inv.status),
                         escapeCSV(inv.sourceType),
                         escapeCSV(inv.caseNumber),
-                        escapeCSV(inv.items.length)
+                        escapeCSV(inv.items.length),
+                        escapeCSV(getGLAccounts(inv.items)),
+                        escapeCSV(getSuggestedGLAccounts(inv.items)),
+                        escapeCSV(inv.aiConfidence)
                     ].join(",")
                 ).join("\n");
 

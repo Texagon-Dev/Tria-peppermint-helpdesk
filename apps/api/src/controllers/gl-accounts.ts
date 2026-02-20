@@ -197,7 +197,7 @@ export function glAccountRoutes(fastify: FastifyInstance) {
     );
 
     // Get GL accounts by account class (for AI agent filtering)
-    // Get GL accounts by class (for AI agent) - REPLACED checkSession with stricter requireSession
+    // Accepts either the numeric class code (e.g. "8000") or the class name (e.g. "Aufwendungen")
     fastify.get<{ Params: IGLAccountClassParams }>(
         "/api/v1/gl-accounts/class/:accountClass",
         {
@@ -208,12 +208,60 @@ export function glAccountRoutes(fastify: FastifyInstance) {
 
             const accounts = await prisma.gLAccount.findMany({
                 where: {
-                    accountClass,
                     active: true,
+                    OR: [
+                        { accountClass },
+                        { accountClassName: { equals: accountClass, mode: 'insensitive' } },
+                    ],
                 },
                 orderBy: { code: "asc" },
+                select: { code: true, name: true, accountClassName: true, taxCode: true, taxRate: true },
             });
 
+            reply.send({ success: true, accounts });
+        }
+    );
+
+    // Search GL accounts by keyword (for AI agent)
+    fastify.get<{ Querystring: { q: string } }>(
+        "/api/v1/gl-accounts/search",
+        {
+            preHandler: requireSession,
+        },
+        async (request, reply) => {
+            const { q } = request.query;
+            if (!q || q.trim().length < 2) {
+                return reply.status(400).send({ success: false, error: "Query must be at least 2 characters" });
+            }
+            const accounts = await prisma.gLAccount.findMany({
+                where: {
+                    active: true,
+                    OR: [
+                        { name: { contains: q, mode: 'insensitive' } },
+                        { code: { contains: q } },
+                        { accountClassName: { contains: q, mode: 'insensitive' } },
+                    ],
+                },
+                orderBy: { code: "asc" },
+                take: 15,
+                select: { code: true, name: true, accountClassName: true, taxCode: true, taxRate: true },
+            });
+            reply.send({ success: true, accounts });
+        }
+    );
+
+    // Get all active expense (Aufwendungen) GL accounts — shortcut for AI agent
+    fastify.get(
+        "/api/v1/gl-accounts/expenses",
+        {
+            preHandler: requireSession,
+        },
+        async (request, reply) => {
+            const accounts = await prisma.gLAccount.findMany({
+                where: { active: true, accountClass: "8000" },
+                orderBy: { code: "asc" },
+                select: { code: true, name: true, taxCode: true, taxRate: true },
+            });
             reply.send({ success: true, accounts });
         }
     );
