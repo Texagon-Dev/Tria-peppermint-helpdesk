@@ -641,11 +641,10 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                         break;
                 }
                 startDate = start.toISOString();
-            } else if (endDate && !endDate.includes("T")) {
                 const end = new Date(endDate);
                 end.setHours(23, 59, 59, 999);
                 endDate = end.toISOString();
-                console.log("[EXPORT] Adjusted custom endDate to:", endDate);
+                fastify.log.debug({ endDate }, "[EXPORT] Adjusted custom endDate");
             }
 
             // Validate date parameters
@@ -664,8 +663,8 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     };
                 }
 
-                console.log("[EXPORT] Request:", { startDate, endDate, preset });
-                console.log("[EXPORT] Query where:", JSON.stringify(where, null, 2));
+                fastify.log.debug({ request: { startDate, endDate, preset } }, "[EXPORT] Request");
+                fastify.log.debug({ queryWhere: where }, "[EXPORT] Query where");
 
                 const invoices = await prisma.invoice.findMany({
                     where,
@@ -681,13 +680,19 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     orderBy: { invoiceDate: "asc" },
                 });
 
-                console.log("[EXPORT] Found invoices:", invoices.length);
+                fastify.log.debug({ invoiceCount: invoices.length }, "[EXPORT] Found invoices");
 
 
                 // Helper to escape CSV fields
                 const escapeCSV = (field: string | number | null | undefined) => {
                     if (field === null || field === undefined) return "";
-                    const stringField = String(field);
+                    let stringField = String(field);
+
+                    // Fix: Prevent CSV Injection
+                    if (['=', '+', '-', '@'].includes(stringField.charAt(0))) {
+                        stringField = "'" + stringField;
+                    }
+
                     if (stringField.includes(",") || stringField.includes('"') || stringField.includes("\n")) {
                         return `"${stringField.replace(/"/g, '""')}"`;
                     }
@@ -700,27 +705,20 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     return date.toISOString().split('T')[0];
                 };
 
-                // Helper to extract unique GL accounts
-                const getGLAccounts = (items: any[]) => {
+                // Generic helper to extract unique, comma-separated account codes from items
+                const getUniqueAccountCodes = (items: any[], keyAccessor: (item: any) => string | undefined | null) => {
                     const accounts = new Set<string>();
                     items.forEach(item => {
-                        if (item.glAccount?.code) {
-                            accounts.add(item.glAccount.code);
-                        }
+                        const code = keyAccessor(item);
+                        if (code) accounts.add(code);
                     });
                     return Array.from(accounts).join(", ");
                 };
 
+                const getGLAccounts = (items: any[]) => getUniqueAccountCodes(items, (item) => item.glAccount?.code);
+
                 // Helper to extract unique Suggested GL accounts
-                const getSuggestedGLAccounts = (items: any[]) => {
-                    const accounts = new Set<string>();
-                    items.forEach(item => {
-                        if (item.glAccountSuggested) {
-                            accounts.add(item.glAccountSuggested);
-                        }
-                    });
-                    return Array.from(accounts).join(", ");
-                };
+                const getSuggestedGLAccounts = (items: any[]) => getUniqueAccountCodes(items, (item) => item.glAccountSuggested);
 
                 // Build CSV content
                 const csvHeader = [
