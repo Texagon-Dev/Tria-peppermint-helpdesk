@@ -259,7 +259,20 @@ export class OpenAIService {
                 "OpenAI Structured Output response"
             );
 
-            const parsed = JSON.parse(raw);
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (error: any) {
+                logger.error({ error, rawResponse: raw }, "OpenAI Vision classification: Failed to parse JSON response");
+                return {
+                    classification: {
+                        type: "ERROR",
+                        confidence: 0,
+                        key_signal: `JSON Parse Error: ${error.message}`,
+                    },
+                    extracted_text: "",
+                };
+            }
 
             return {
                 classification: {
@@ -352,7 +365,13 @@ export class OpenAIService {
             }
 
             const raw = response.output_text ?? "{}";
-            const parsed = JSON.parse(raw);
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (error: any) {
+                logger.error({ error, rawResponse: raw }, "OpenAI quote extraction: Failed to parse JSON response");
+                return "";
+            }
             const documents = parsed.documents ?? [];
 
             if (!Array.isArray(documents) || documents.length === 0) return "";
