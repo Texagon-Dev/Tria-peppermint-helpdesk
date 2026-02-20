@@ -837,7 +837,7 @@ export class ImapService {
           const pdfContent = quotePdfText.length > 0 ? quotePdfText : pdfText;
 
           const replyText = getReplyText({ text: baseText });
-          const commentText = (replyText || baseText) + pdfContent;
+          const commentText = (replyText || baseText) + escapeHtml(pdfContent);
 
           const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
             const createdComment = await tx.comment.create({
@@ -965,7 +965,7 @@ export class ImapService {
           );
 
           const replyText = getReplyText({ text: baseText });
-          const commentText = (replyText || baseText) + pdfText;
+          const commentText = (replyText || baseText) + escapeHtml(pdfText);
 
           const { comment, currentExternalIds } = await prisma.$transaction(async (tx) => {
             const createdComment = await tx.comment.create({
