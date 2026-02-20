@@ -641,6 +641,7 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                         break;
                 }
                 startDate = start.toISOString();
+            } else if (endDate && !endDate.includes("T")) {
                 const end = new Date(endDate);
                 end.setHours(23, 59, 59, 999);
                 endDate = end.toISOString();
