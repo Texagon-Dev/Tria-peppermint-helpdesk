@@ -78,6 +78,13 @@ server.addHook("preHandler", async function (request: any, reply: any) {
     ) {
       return true;
     }
+    // Skip auth for Microsoft OAuth callback (Microsoft redirects here without Bearer token)
+    if (
+      request.url.startsWith("/api/v1/email-queue/oauth/microsoft") &&
+      request.method === "GET"
+    ) {
+      return true;
+    }
     // Skip auth for Gmail SMTP OAuth callback
     if (
       request.url.startsWith("/api/v1/config/email/oauth/gmail") &&

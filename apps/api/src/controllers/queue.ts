@@ -2,8 +2,10 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 import { OAuth2Client } from "google-auth-library";
 import { track } from "../lib/hog";
-import { GMAIL_PENDING_NAME, GMAIL_PENDING_EMAIL, GMAIL_DEFAULT_EXPIRY_OFFSET_SECONDS } from "../lib/constants";
+import { GMAIL_PENDING_NAME, GMAIL_PENDING_EMAIL, GMAIL_DEFAULT_EXPIRY_OFFSET_SECONDS, MICROSOFT_PENDING_NAME, MICROSOFT_PENDING_EMAIL } from "../lib/constants";
 import { prisma } from "../prisma";
+
+const { ConfidentialClientApplication } = require("@azure/msal-node");
 
 async function tracking(event: string, properties: any) {
   const client = track();
@@ -27,6 +29,21 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
     if (!clientId || !clientSecret || !redirectUri) {
       throw new Error(
         "Gmail OAuth credentials not configured. Please set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_EMAIL_QUEUE_REDIRECT_URI environment variables."
+      );
+    }
+
+    return { clientId, clientSecret, redirectUri };
+  };
+
+  // Get Microsoft OAuth credentials from environment
+  const getMicrosoftCredentials = () => {
+    const clientId = process.env.MICROSOFT_CLIENT_ID;
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+    const redirectUri = process.env.MICROSOFT_EMAIL_QUEUE_REDIRECT_URI;
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      throw new Error(
+        "Microsoft OAuth credentials not configured. Please set MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and MICROSOFT_EMAIL_QUEUE_REDIRECT_URI environment variables."
       );
     }
 
@@ -81,6 +98,58 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // New endpoint: Get Microsoft OAuth authorization URL
+  fastify.post(
+    "/api/v1/email-queue/microsoft/auth-url",
+
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { clientId, clientSecret, redirectUri } = getMicrosoftCredentials();
+
+        // Create a temporary email queue record (same pattern as Gmail)
+        const mailbox = await prisma.emailQueue.create({
+          data: {
+            name: MICROSOFT_PENDING_NAME,
+            username: MICROSOFT_PENDING_EMAIL,
+            hostname: "outlook.office365.com",
+            serviceType: "microsoft",
+          },
+        });
+
+        // Use /organizations authority for multi-tenant (any Microsoft 365 org can authenticate)
+        const cca = new ConfidentialClientApplication({
+          auth: {
+            clientId,
+            authority: "https://login.microsoftonline.com/organizations",
+            clientSecret,
+          },
+        });
+
+        const authorizeUrl = await cca.getAuthCodeUrl({
+          scopes: [
+            "https://outlook.office365.com/IMAP.AccessAsUser.All",
+            "https://outlook.office365.com/SMTP.Send",
+            "offline_access",
+            "User.Read",
+          ],
+          redirectUri,
+          state: mailbox.id,
+          prompt: "consent",
+        });
+
+        tracking("microsoft_oauth_initiated", { provider: "microsoft" });
+
+        reply.send({
+          success: true,
+          message: "Microsoft authorization URL generated!",
+          authorizeUrl,
+        });
+      } catch (error: any) {
+        reply.status(400).send({ success: false, message: error.message });
+      }
+    }
+  );
+
   // Create a new email queue (for non-Gmail providers)
   fastify.post(
     "/api/v1/email-queue/create",
@@ -100,6 +169,15 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
         reply.status(400).send({
           success: false,
           message: "For Gmail, please use /api/v1/email-queue/gmail/auth-url endpoint",
+        });
+        return;
+      }
+
+      // For Microsoft, redirect to use the new /microsoft/auth-url endpoint
+      if (serviceType === "microsoft") {
+        reply.status(400).send({
+          success: false,
+          message: "For Microsoft, please use /api/v1/email-queue/microsoft/auth-url endpoint",
         });
         return;
       }
@@ -192,6 +270,109 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
         reply.redirect(`${frontendUrl}/admin/email-queues?success=true`);
       } catch (error: any) {
         console.error("Gmail OAuth callback error:", error);
+        const frontendUrl = process.env.FRONTEND_URL || "";
+        reply.redirect(`${frontendUrl}/admin/email-queues?error=${encodeURIComponent(error.message)}`);
+      }
+    }
+  );
+
+  // Microsoft OAuth callback
+  fastify.get(
+    "/api/v1/email-queue/oauth/microsoft",
+
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { code, state } = request.query as { code?: string; state?: string };
+
+        if (!code || !state) {
+          reply.status(400).send({
+            success: false,
+            message: "Missing authorization code or state parameter",
+          });
+          return;
+        }
+
+        const mailbox = await prisma.emailQueue.findFirst({
+          where: { id: state },
+        });
+
+        if (!mailbox) {
+          reply.status(404).send({
+            success: false,
+            message: "Email queue not found",
+          });
+          return;
+        }
+
+        const { clientId, clientSecret, redirectUri } = getMicrosoftCredentials();
+
+        // Use /organizations authority for multi-tenant
+        const cca = new ConfidentialClientApplication({
+          auth: {
+            clientId,
+            authority: "https://login.microsoftonline.com/organizations",
+            clientSecret,
+          },
+        });
+
+        const result = await cca.acquireTokenByCode({
+          code,
+          scopes: [
+            "https://outlook.office365.com/IMAP.AccessAsUser.All",
+            "https://outlook.office365.com/SMTP.Send",
+            "offline_access",
+            "User.Read",
+          ],
+          redirectUri,
+        });
+
+        // Extract refresh token from MSAL's internal token cache
+        // (MSAL doesn't expose it in AuthenticationResult directly)
+        const serializedCache = cca.getTokenCache().serialize();
+        const cache = JSON.parse(serializedCache);
+        const refreshTokenEntries = Object.values(cache.RefreshToken || {}) as any[];
+        const refreshToken = refreshTokenEntries[0]?.secret || null;
+
+        // Fetch user email from Microsoft Graph
+        const userInfoResponse = await axios.get(
+          "https://graph.microsoft.com/v1.0/me",
+          {
+            headers: {
+              Authorization: `Bearer ${result.accessToken}`,
+            },
+          }
+        );
+
+        const userEmail = userInfoResponse.data.mail || userInfoResponse.data.userPrincipalName || "unknown@outlook.com";
+
+        // Calculate expiry timestamp
+        const expiresInSeconds = result.expiresOn
+          ? Math.floor(new Date(result.expiresOn).getTime() / 1000)
+          : Math.floor(Date.now() / 1000) + 3600;
+
+        // Extract tenantId from the token response (for multi-tenant: each queue stores its own)
+        const tenantId = result.tenantId || result.account?.tenantId || "";
+
+        await prisma.emailQueue.update({
+          where: { id: mailbox.id },
+          data: {
+            name: userEmail,
+            username: userEmail,
+            refreshToken,
+            accessToken: result.accessToken,
+            expiresIn: expiresInSeconds,
+            tenantId,
+            serviceType: "microsoft",
+          },
+        });
+
+        tracking("microsoft_oauth_completed", { provider: "microsoft" });
+
+        // Redirect to frontend email queues page
+        const frontendUrl = process.env.FRONTEND_URL || "";
+        reply.redirect(`${frontendUrl}/admin/email-queues?success=true`);
+      } catch (error: any) {
+        console.error("Microsoft OAuth callback error:", error);
         const frontendUrl = process.env.FRONTEND_URL || "";
         reply.redirect(`${frontendUrl}/admin/email-queues?error=${encodeURIComponent(error.message)}`);
       }
