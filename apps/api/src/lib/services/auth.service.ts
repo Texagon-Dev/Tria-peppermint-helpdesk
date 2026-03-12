@@ -2,6 +2,7 @@ import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../../prisma";
 import { EmailQueue } from "../types/email";
 import { normalizeExpiryToSeconds } from "../constants";
+const { ConfidentialClientApplication } = require("@azure/msal-node");
 
 export class AuthService {
   public static generateXOAuth2Token(
@@ -94,6 +95,80 @@ export class AuthService {
       }
 
       throw new Error(`Gmail token refresh failed: ${errorMessage}. Please re-authenticate Gmail.`);
+    }
+  }
+
+  static async getMicrosoftValidAccessToken(queue: EmailQueue): Promise<string> {
+    const { refreshToken, accessToken, expiresIn } = queue;
+
+    const clientId = process.env.MICROSOFT_CLIENT_ID || queue.clientId;
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET || queue.clientSecret;
+
+    if (!clientId || !clientSecret) {
+      throw new Error("Microsoft OAuth credentials not configured. Please set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET environment variables.");
+    }
+
+    // Check if token is still valid (with 5 minute buffer)
+    const now = Math.floor(Date.now() / 1000);
+    const expiresInNum = expiresIn ? normalizeExpiryToSeconds(expiresIn) : 0;
+
+    if (accessToken && expiresInNum && now < (expiresInNum - 300)) {
+      return accessToken;
+    }
+
+    console.log(`[AuthService] Microsoft token expired for queue ${queue.id}, refreshing...`);
+
+    if (!refreshToken) {
+      throw new Error("No Microsoft refresh token available. Please re-authenticate Microsoft.");
+    }
+
+    const cca = new ConfidentialClientApplication({
+      auth: {
+        clientId,
+        authority: "https://login.microsoftonline.com/organizations",
+        clientSecret,
+      },
+    });
+
+    try {
+      const result = await cca.acquireTokenByRefreshToken({
+        refreshToken,
+        scopes: [
+          "https://outlook.office365.com/IMAP.AccessAsUser.All",
+          "https://outlook.office365.com/SMTP.Send",
+          "offline_access",
+        ],
+      });
+
+      if (!result || !result.accessToken) {
+        throw new Error("Unable to refresh Microsoft access token - no token returned.");
+      }
+
+      const expiryTimeSeconds = result.expiresOn
+        ? Math.floor(result.expiresOn.getTime() / 1000)
+        : Math.floor(Date.now() / 1000) + 3600;
+
+      await prisma.emailQueue.update({
+        where: { id: queue.id },
+        data: {
+          accessToken: result.accessToken,
+          expiresIn: BigInt(expiryTimeSeconds),
+        },
+      });
+
+      console.log(`[AuthService] Microsoft token refreshed successfully for queue ${queue.id}`);
+      return result.accessToken;
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = error?.errorCode || "";
+      console.error(`[AuthService] Failed to refresh Microsoft token for queue ${queue.id}:`, errorMessage);
+
+      const invalidTokenCodes = ["interaction_required", "consent_required", "login_required", "refresh_token_expired", "bad_token"];
+      if (invalidTokenCodes.includes(errorCode) || errorMessage.includes("AADSTS700082") || errorMessage.includes("AADSTS50076")) {
+        throw new Error("Microsoft refresh token is invalid or expired. Please re-authenticate Microsoft.");
+      }
+
+      throw new Error(`Microsoft token refresh failed: ${errorMessage}. Please re-authenticate Microsoft.`);
     }
   }
 }
