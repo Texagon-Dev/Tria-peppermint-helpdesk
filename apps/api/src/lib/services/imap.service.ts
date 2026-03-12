@@ -228,6 +228,22 @@ export class ImapService {
           authTimeout: 30000, // 30 seconds auth timeout
         };
       }
+      case "microsoft": {
+        const validatedAccessToken = await AuthService.getMicrosoftValidAccessToken(queue);
+        return {
+          user: queue.username,
+          host: "outlook.office365.com",
+          port: 993,
+          tls: true,
+          xoauth2: AuthService.generateXOAuth2Token(
+            queue.username,
+            validatedAccessToken
+          ),
+          tlsOptions: { rejectUnauthorized: false, servername: "outlook.office365.com" },
+          connTimeout: 60000,
+          authTimeout: 30000,
+        };
+      }
       case "other":
         return {
           user: queue.username,
@@ -340,6 +356,33 @@ export class ImapService {
       logger.info(
         { ticketId: ticket.id },
         "Layer 2: Matched by Ticket externalIds"
+      );
+    }
+    return ticket;
+  }
+
+  /**
+   * LAYER 2.5: Match using [REQ-xxxxxxxx] reference in subject line
+   * Fallback when RFC 5322 headers are stripped (e.g., forwarded emails)
+   * The [REQ-xxx] tag is added to all outgoing emails and survives forwarding
+   */
+  private static async matchByReqReference(
+    subject: string
+  ): Promise<Ticket | null> {
+    const match = subject.match(/\[REQ-([a-f0-9]{8})\]/i);
+    if (!match) return null;
+
+    const ticketIdPrefix = match[1].toLowerCase();
+    logger.debug({ ticketIdPrefix }, "Layer 2.5: Checking [REQ-xxx] subject reference");
+
+    const ticket = await prisma.ticket.findFirst({
+      where: { id: { startsWith: ticketIdPrefix } },
+    });
+
+    if (ticket) {
+      logger.info(
+        { ticketId: ticket.id },
+        "Layer 2.5: Matched by [REQ-xxx] subject reference"
       );
     }
     return ticket;
@@ -614,6 +657,10 @@ export class ImapService {
     ticket = await this.matchByMessageIdChain(headers);
     if (ticket) return ticket;
 
+    // Layer 2.5: [REQ-xxx] subject reference (fallback when headers are stripped)
+    ticket = await this.matchByReqReference(subject);
+    if (ticket) return ticket;
+
     // Layer 3 DISABLED: Subject-based matching is unreliable and can incorrectly merge
     // unrelated tickets that happen to have similar subject lines (e.g., two different
     // "Broken Lock" issues from the same sender). If an email lacks proper threading
@@ -633,7 +680,7 @@ export class ImapService {
    *  - Vendor/Utility without PDF → Normal vendor reply (existing behavior)
    *  - Customer → Normal ticket flow (existing behavior)
    */
-  private static async processEmail(parsed: ParsedMail): Promise<void> {
+  private static async processEmail(parsed: ParsedMail, queueId: string): Promise<void> {
     const { from, subject, text, html, textAsHtml, headers, messageId } = parsed;
 
     // Validate sender address
@@ -1064,7 +1111,8 @@ export class ImapService {
           enrichedHtml,
           threadId,
           normalizedMessageId,
-          { previous: matchedTicket.id }
+          { previous: matchedTicket.id },
+          queueId
         );
       } else {
         logger.info(
@@ -1096,7 +1144,8 @@ export class ImapService {
         enrichedHtml,
         threadId,
         normalizedMessageId,
-        null
+        null,
+        queueId
       );
     }
   }
@@ -1112,7 +1161,8 @@ export class ImapService {
     htmlContent: string,
     threadId: string | null,
     messageId: string | null,
-    linked: { previous: string } | null
+    linked: { previous: string } | null,
+    queueId: string
   ): Promise<void> {
     // Store raw email
     const imapEmail = await prisma.imap_Email.create({
@@ -1137,6 +1187,7 @@ export class ImapService {
         detail: htmlContent || textContent,
         threadId: threadId,
         externalIds: messageId ? [messageId] : [],
+        sourceQueueId: queueId,
         ...(linked && { linked }),
       },
     });
@@ -1325,7 +1376,7 @@ export class ImapService {
                   msg.on("body", (stream) => {
                     simpleParser(stream, async (err, parsed) => {
                       if (err) throw err;
-                      await this.processEmail(parsed);
+                      await this.processEmail(parsed, queue.id);
                     });
                   });
 
