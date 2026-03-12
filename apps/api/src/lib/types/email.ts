@@ -14,7 +14,7 @@ export interface EmailConfig {
 }
 
 export type EmailQueue = {
-  serviceType: "gmail" | "other";
+  serviceType: "gmail" | "microsoft" | "other";
   id: string;
   username: string;
   hostname: string;
@@ -25,4 +25,5 @@ export type EmailQueue = {
   accessToken?: string;
   expiresIn?: bigint | number;
   tls?: boolean;
+  tenantId?: string;
 };
