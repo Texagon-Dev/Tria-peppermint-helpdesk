@@ -161,6 +161,9 @@ model Ticket {
   clientId   String?
   userId     String?
 
+  sourceQueueId String?
+  sourceQueue   EmailQueue? @relation("QueueTickets", fields: [sourceQueueId], references: [id])
+
   knowledgeBase knowledgeBase[]
   notifications notifications[]
 }
@@ -416,7 +419,8 @@ model EmailQueue {
   expiresIn    BigInt?
   redirectUri  String?
 
-  imap Imap_Email[]
+  imap    Imap_Email[]
+  tickets Ticket[]     @relation("QueueTickets")
 }
 
 model notifications {
