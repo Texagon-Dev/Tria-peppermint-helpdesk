@@ -333,17 +333,9 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
         const refreshTokenEntries = Object.values(cache.RefreshToken || {}) as any[];
         const refreshToken = refreshTokenEntries[0]?.secret || null;
 
-        // Fetch user email from Microsoft Graph
-        const userInfoResponse = await axios.get(
-          "https://graph.microsoft.com/v1.0/me",
-          {
-            headers: {
-              Authorization: `Bearer ${result.accessToken}`,
-            },
-          }
-        );
-
-        const userEmail = userInfoResponse.data.mail || userInfoResponse.data.userPrincipalName || "unknown@outlook.com";
+        // Extract user email from MSAL account info (no separate Graph call needed —
+        // the access token audience is outlook.office365.com, not graph.microsoft.com)
+        const userEmail = result.account?.username || result.account?.name || "unknown@outlook.com";
 
         // Calculate expiry timestamp
         const expiresInSeconds = result.expiresOn
