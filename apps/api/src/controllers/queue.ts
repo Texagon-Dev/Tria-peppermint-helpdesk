@@ -5,7 +5,7 @@ import { track } from "../lib/hog";
 import { GMAIL_PENDING_NAME, GMAIL_PENDING_EMAIL, GMAIL_DEFAULT_EXPIRY_OFFSET_SECONDS, MICROSOFT_PENDING_NAME, MICROSOFT_PENDING_EMAIL } from "../lib/constants";
 import { prisma } from "../prisma";
 
-const { ConfidentialClientApplication } = require("@azure/msal-node");
+import { ConfidentialClientApplication } from "@azure/msal-node";
 
 async function tracking(event: string, properties: any) {
   const client = track();
@@ -335,7 +335,11 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
 
         // Extract user email from MSAL account info (no separate Graph call needed —
         // the access token audience is outlook.office365.com, not graph.microsoft.com)
-        const userEmail = result.account?.username || result.account?.name || "unknown@outlook.com";
+        const userEmail = result.account?.username || result.account?.name;
+
+        if (!userEmail) {
+          throw new Error("Could not determine user's email from Microsoft account info.");
+        }
 
         // Calculate expiry timestamp
         const expiresInSeconds = result.expiresOn
@@ -352,7 +356,7 @@ export function emailQueueRoutes(fastify: FastifyInstance) {
             username: userEmail,
             refreshToken,
             accessToken: result.accessToken,
-            expiresIn: expiresInSeconds,
+            expiresIn: BigInt(expiresInSeconds),
             tenantId,
             serviceType: "microsoft",
           },

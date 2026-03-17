@@ -22,14 +22,10 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
     // Look up ticket's source queue for reply-from-receiving-inbox
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
-      select: { sourceQueueId: true },
+      include: { sourceQueue: true },
     });
 
-    let fromAddress: string | undefined;
-    if (ticket?.sourceQueueId) {
-      const queue = await prisma.emailQueue.findFirst({ where: { id: ticket.sourceQueueId } });
-      if (queue) fromAddress = queue.username;
-    }
+    let fromAddress: string | undefined = ticket?.sourceQueue?.username;
 
     // Fall back to Email table for from address
     if (!fromAddress) {

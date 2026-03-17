@@ -1,6 +1,7 @@
 import { prisma } from "../../prisma";
 import { normalizeExpiryToSeconds } from "../constants";
 import { AuthService } from "../services/auth.service";
+import { EmailQueue } from "../types/email";
 
 const nodemailer = require("nodemailer");
 
@@ -10,7 +11,7 @@ export async function createTransportProvider(queueId?: string) {
     const queue = await prisma.emailQueue.findFirst({ where: { id: queueId } });
     if (queue) {
       if (queue.serviceType === "gmail") {
-        const validAccessToken = await AuthService.getValidAccessToken(queue as any);
+        const validAccessToken = await AuthService.getValidAccessToken(queue as EmailQueue);
         return nodemailer.createTransport({
           host: "smtp.gmail.com",
           port: 465,
@@ -27,7 +28,7 @@ export async function createTransportProvider(queueId?: string) {
       }
 
       if (queue.serviceType === "microsoft") {
-        const validAccessToken = await AuthService.getMicrosoftValidAccessToken(queue as any);
+        const validAccessToken = await AuthService.getMicrosoftValidAccessToken(queue as EmailQueue);
         return nodemailer.createTransport({
           host: "smtp.office365.com",
           port: 587,

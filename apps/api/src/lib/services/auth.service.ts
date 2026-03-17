@@ -2,7 +2,7 @@ import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../../prisma";
 import { EmailQueue } from "../types/email";
 import { normalizeExpiryToSeconds } from "../constants";
-const { ConfidentialClientApplication } = require("@azure/msal-node");
+import { ConfidentialClientApplication } from "@azure/msal-node";
 
 export class AuthService {
   public static generateXOAuth2Token(
@@ -125,7 +125,7 @@ export class AuthService {
     const cca = new ConfidentialClientApplication({
       auth: {
         clientId,
-        authority: "https://login.microsoftonline.com/organizations",
+        authority: `https://login.microsoftonline.com/${queue.tenantId || 'organizations'}`,
         clientSecret,
       },
     });
