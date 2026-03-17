@@ -19,9 +19,21 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
   const { comment, title, ticketId, email, originalSubject, inReplyTo, references } = options;
 
   try {
-    const provider = await prisma.email.findFirst();
+    // Look up ticket's source queue for reply-from-receiving-inbox
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      include: { sourceQueue: true },
+    });
 
-    const transport = await createTransportProvider();
+    let fromAddress: string | undefined = ticket?.sourceQueue?.username;
+
+    // Fall back to Email table for from address
+    if (!fromAddress) {
+      const provider = await prisma.email.findFirst();
+      fromAddress = provider?.reply;
+    }
+
+    const transport = await createTransportProvider(ticket?.sourceQueueId ?? undefined);
 
     const testhtml = await prisma.emailTemplate.findFirst({
       where: {
@@ -37,8 +49,8 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
     };
     var htmlToSend = template(replacements);
 
-    // Build subject with optional REQ reference for vendors
-    const refTag = options.isVendorEmail ? `[REQ-${ticketId.slice(0, TICKET_REFERENCE_LENGTH)}] ` : '';
+    // Build subject with [REQ-xxx] reference for Layer 2.5 thread matching
+    const refTag = `[REQ-${ticketId.slice(0, TICKET_REFERENCE_LENGTH)}] `;
     const subject = originalSubject
       ? `${refTag}Re: ${originalSubject.replace(/^(Re:\s*)+/i, '')}` // Remove existing Re: prefixes
       : `${refTag}New comment on Issue #${title} ref: #${ticketId}`;
@@ -64,7 +76,7 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
     console.log("Threading headers:", headers);
 
     const info = await transport.sendMail({
-      from: provider?.reply,
+      from: fromAddress,
       to: email,
       subject: subject,
       text: `Hello there, Issue #${title}, has had an update with a comment of ${comment}`,

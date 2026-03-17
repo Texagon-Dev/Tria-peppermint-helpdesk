@@ -5,6 +5,10 @@
 export const GMAIL_PENDING_NAME = "Gmail (pending authorization)";
 export const GMAIL_PENDING_EMAIL = "pending@gmail.com";
 
+// Microsoft OAuth placeholder values (used during pending authorization)
+export const MICROSOFT_PENDING_NAME = "Microsoft (pending authorization)";
+export const MICROSOFT_PENDING_EMAIL = "pending@outlook.com";
+
 /**
  * Default fallback expiry offset for Gmail OAuth tokens (in seconds).
  * Used when the token response doesn't include an explicit expiry_date.
