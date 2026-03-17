@@ -1448,8 +1448,17 @@ export class ImapService {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : undefined;
+
+        // Provide actionable guidance for Microsoft IMAP auth failures
+        let guidance = "";
+        if (queue.serviceType === "microsoft" && errorMessage.includes("AUTHENTICATE failed")) {
+          guidance = " → IMAP and/or Authenticated SMTP is not enabled for this mailbox. " +
+            "Ask your Microsoft 365 admin to enable it: Admin Center > Users > " +
+            queue.username + " > Mail > Manage email apps > enable IMAP + Authenticated SMTP.";
+        }
+
         logger.error({
-          errorMessage,
+          errorMessage: errorMessage + guidance,
           errorStack,
           queueId: queue.id,
           username: queue.username,
