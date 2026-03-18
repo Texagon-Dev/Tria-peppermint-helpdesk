@@ -1,8 +1,4 @@
-import axios from "axios";
-
-const PEPPERMINT_API_URL =
-  process.env.PEPPERMINT_API_URL || "http://localhost:5003";
-const PEPPERMINT_API_KEY = process.env.PEPPERMINT_API_KEY || "";
+import { prisma } from "../prisma";
 
 // =============================================================================
 // TYPES
@@ -22,19 +18,7 @@ export interface ToolDefinition {
 }
 
 // =============================================================================
-// PEPPERMINT API PROXY
-// =============================================================================
-
-async function callPeppermint(path: string): Promise<any> {
-  const url = `${PEPPERMINT_API_URL}${path}`;
-  const res = await axios.get(url, {
-    headers: { "X-API-Key": PEPPERMINT_API_KEY },
-  });
-  return res.data;
-}
-
-// =============================================================================
-// TOOL DEFINITIONS
+// TOOL DEFINITIONS — call Prisma directly (same queries as domus.ts search routes)
 // =============================================================================
 
 export const tools: ToolDefinition[] = [
@@ -50,9 +34,11 @@ export const tools: ToolDefinition[] = [
       },
     },
     execute: async (params) => {
-      return callPeppermint(
-        `/api/v1/domus/search/email?email=${encodeURIComponent(params.email)}`
-      );
+      const units = await prisma.domusUnit.findMany({
+        where: { OR: [{ email: params.email }, { email2: params.email }] },
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
     },
   },
   {
@@ -67,9 +53,17 @@ export const tools: ToolDefinition[] = [
       },
     },
     execute: async (params) => {
-      return callPeppermint(
-        `/api/v1/domus/search/name?name=${encodeURIComponent(params.name)}`
-      );
+      const units = await prisma.domusUnit.findMany({
+        where: {
+          OR: [
+            { name1: { contains: params.name, mode: "insensitive" } },
+            { name2: { contains: params.name, mode: "insensitive" } },
+            { searchTerm: { contains: params.name, mode: "insensitive" } },
+          ],
+        },
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
     },
   },
   {
@@ -94,18 +88,15 @@ export const tools: ToolDefinition[] = [
           "At least one of property_number or unit_number is required."
         );
       }
-      const queryParts: string[] = [];
-      if (params.property_number)
-        queryParts.push(
-          `property_number=${encodeURIComponent(params.property_number)}`
-        );
-      if (params.unit_number)
-        queryParts.push(
-          `unit_number=${encodeURIComponent(params.unit_number)}`
-        );
-      return callPeppermint(
-        `/api/v1/domus/search/property-unit?${queryParts.join("&")}`
-      );
+      const where: any = {};
+      if (params.property_number) where.propertyNumber = params.property_number;
+      if (params.unit_number) where.unitNumber = params.unit_number;
+
+      const units = await prisma.domusUnit.findMany({
+        where,
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
     },
   },
   {
@@ -120,11 +111,11 @@ export const tools: ToolDefinition[] = [
       },
     },
     execute: async (params) => {
-      return callPeppermint(
-        `/api/v1/domus/search/tenant-number?tenant_number=${encodeURIComponent(
-          params.tenant_number
-        )}`
-      );
+      const units = await prisma.domusUnit.findMany({
+        where: { tenantOwnerNumber: params.tenant_number },
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
     },
   },
   {
@@ -144,11 +135,19 @@ export const tools: ToolDefinition[] = [
       },
     },
     execute: async (params) => {
-      return callPeppermint(
-        `/api/v1/domus/unit/${encodeURIComponent(
-          params.property_number
-        )}/${encodeURIComponent(params.unit_number)}`
-      );
+      const unit = await prisma.domusUnit.findFirst({
+        where: {
+          propertyNumber: params.property_number,
+          unitNumber: params.unit_number,
+        },
+        include: {
+          bankingInfo: true,
+          allocationKeys: { orderBy: { keyIndex: "asc" } },
+          scheduledCharges: { orderBy: { chargeIndex: "asc" } },
+        },
+      });
+      if (!unit) throw new Error("Unit not found");
+      return { success: true, unit };
     },
   },
 ];

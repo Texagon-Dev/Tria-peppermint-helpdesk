@@ -1,5 +1,4 @@
-import axios from "axios";
-import type { ToolParameter, ToolDefinition } from "./tools";
+import type { ToolParameter } from "./tools";
 import { tools, toolsByName } from "./tools";
 
 // =============================================================================
@@ -92,13 +91,10 @@ export async function handleMcpRequest(body: any) {
         },
       };
     } catch (err: any) {
-      const message = axios.isAxiosError(err)
-        ? err.response?.data?.error || err.message
-        : err.message;
       return mcpError(
         requestId,
         -32000,
-        `Tool execution failed: ${message}`
+        `Tool execution failed: ${err.message}`
       );
     }
   }
