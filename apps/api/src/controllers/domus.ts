@@ -4,6 +4,7 @@ import * as path from "path";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireAdmin } from "../lib/session";
 import { validateApiKey } from "../lib/api-key";
+import { checkToken } from "../lib/jwt";
 import { prisma } from "../prisma";
 import { startBackgroundJob } from "../lib/domus/worker";
 
@@ -114,9 +115,20 @@ export function domusRoutes(fastify: FastifyInstance) {
   );
 
   // GET /api/v1/domus/jobs/:jobId/stream — SSE stream for job progress
+  // Auth is skipped in global preHandler (EventSource can't send headers).
+  // Token is validated here via query param instead.
   fastify.get(
     "/api/v1/domus/jobs/:jobId/stream",
     async (request: FastifyRequest, reply: FastifyReply) => {
+      // Validate token from query param (EventSource cannot send Authorization header)
+      const { token } = request.query as { token?: string };
+      try {
+        if (!token) throw new Error("No token");
+        checkToken(token);
+      } catch {
+        return reply.status(401).send({ success: false, error: "Unauthorized" });
+      }
+
       const { jobId } = request.params as { jobId: string };
 
       const job = await prisma.domusJob.findUnique({
