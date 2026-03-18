@@ -1,4 +1,5 @@
 import { prisma } from "../prisma";
+import { Prisma } from "@prisma/client";
 
 // =============================================================================
 // TYPES
@@ -88,7 +89,7 @@ export const tools: ToolDefinition[] = [
           "At least one of property_number or unit_number is required."
         );
       }
-      const where: any = {};
+      const where: Prisma.DomusUnitWhereInput = {};
       if (params.property_number) where.propertyNumber = params.property_number;
       if (params.unit_number) where.unitNumber = params.unit_number;
 

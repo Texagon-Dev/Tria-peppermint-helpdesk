@@ -79,6 +79,18 @@ export async function handleMcpRequest(body: any) {
     }
 
     const tool = toolsByName.get(toolName)!;
+
+    // Validate required arguments
+    for (const [paramName, paramDef] of Object.entries(tool.parameters)) {
+      if (paramDef.required && !args[paramName]) {
+        return mcpError(
+          requestId,
+          -32602,
+          `Missing required argument for tool '${toolName}': ${paramName}`
+        );
+      }
+    }
+
     try {
       const result = await tool.execute(args);
       return {

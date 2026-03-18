@@ -20,6 +20,9 @@ async function requireAdminOrApiKey(
 // MCP ROUTES — mounted on the main Peppermint API Fastify instance
 // =============================================================================
 
+const SSE_KEEPALIVE_MS = 30_000; // 30 seconds
+const SSE_TIMEOUT_MS = 1_800_000; // 30 minutes
+
 export function mcpRoutes(fastify: FastifyInstance) {
   // GET /mcp — SSE stream (Streamable HTTP transport handshake)
   fastify.get(
@@ -36,7 +39,7 @@ export function mcpRoutes(fastify: FastifyInstance) {
 
       const keepalive = setInterval(() => {
         reply.raw.write(":keepalive\n\n");
-      }, 30000);
+      }, SSE_KEEPALIVE_MS);
 
       const timeout = setTimeout(() => {
         clearInterval(keepalive);
@@ -44,7 +47,7 @@ export function mcpRoutes(fastify: FastifyInstance) {
           'event: close\ndata: {"reason":"max_duration_reached"}\n\n'
         );
         reply.raw.end();
-      }, 1800000); // 30 min
+      }, SSE_TIMEOUT_MS);
 
       request.raw.on("close", () => {
         clearInterval(keepalive);
