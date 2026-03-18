@@ -18,6 +18,7 @@ import { utilityCompanyRoutes } from "./controllers/utility-companies";
 import { glAccountRoutes } from "./controllers/gl-accounts";
 import { invoiceRoutes } from "./controllers/invoices";
 import { domusRoutes } from "./controllers/domus";
+import { mcpRoutes } from "./mcp/routes";
 
 
 
@@ -41,4 +42,5 @@ export function registerRoutes(fastify: FastifyInstance) {
   glAccountRoutes(fastify);
   invoiceRoutes(fastify);
   domusRoutes(fastify);
+  mcpRoutes(fastify);
 }

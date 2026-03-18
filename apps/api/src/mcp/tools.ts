@@ -1,0 +1,156 @@
+import { prisma } from "../prisma";
+import { Prisma } from "@prisma/client";
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+export interface ToolParameter {
+  type: string;
+  required: boolean;
+  description: string;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, ToolParameter>;
+  execute: (params: Record<string, string>) => Promise<any>;
+}
+
+// =============================================================================
+// TOOL DEFINITIONS — call Prisma directly (same queries as domus.ts search routes)
+// =============================================================================
+
+export const tools: ToolDefinition[] = [
+  {
+    name: "domus_search_by_email",
+    description:
+      "Search DOMUS tenant/owner data by email address. Returns matching units with banking info.",
+    parameters: {
+      email: {
+        type: "string",
+        required: true,
+        description: "Email address to search for",
+      },
+    },
+    execute: async (params) => {
+      const units = await prisma.domusUnit.findMany({
+        where: { OR: [{ email: params.email }, { email2: params.email }] },
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
+    },
+  },
+  {
+    name: "domus_search_by_name",
+    description:
+      "Search DOMUS tenant/owner data by name. Searches across name1, name2, and searchTerm fields (case-insensitive).",
+    parameters: {
+      name: {
+        type: "string",
+        required: true,
+        description: "Name to search for",
+      },
+    },
+    execute: async (params) => {
+      const units = await prisma.domusUnit.findMany({
+        where: {
+          OR: [
+            { name1: { contains: params.name, mode: "insensitive" } },
+            { name2: { contains: params.name, mode: "insensitive" } },
+            { searchTerm: { contains: params.name, mode: "insensitive" } },
+          ],
+        },
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
+    },
+  },
+  {
+    name: "domus_search_by_property_unit",
+    description:
+      "Search DOMUS data by property number and/or unit number. At least one must be provided.",
+    parameters: {
+      property_number: {
+        type: "string",
+        required: false,
+        description: "Property number (Objektnummer)",
+      },
+      unit_number: {
+        type: "string",
+        required: false,
+        description: "Unit number (Einheitennummer)",
+      },
+    },
+    execute: async (params) => {
+      if (!params.property_number && !params.unit_number) {
+        throw new Error(
+          "At least one of property_number or unit_number is required."
+        );
+      }
+      const where: Prisma.DomusUnitWhereInput = {};
+      if (params.property_number) where.propertyNumber = params.property_number;
+      if (params.unit_number) where.unitNumber = params.unit_number;
+
+      const units = await prisma.domusUnit.findMany({
+        where,
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
+    },
+  },
+  {
+    name: "domus_search_by_tenant_number",
+    description:
+      "Search DOMUS data by tenant/owner number (MieterEigentümernummer).",
+    parameters: {
+      tenant_number: {
+        type: "string",
+        required: true,
+        description: "Tenant/owner number",
+      },
+    },
+    execute: async (params) => {
+      const units = await prisma.domusUnit.findMany({
+        where: { tenantOwnerNumber: params.tenant_number },
+        include: { bankingInfo: true },
+      });
+      return { success: true, units };
+    },
+  },
+  {
+    name: "domus_get_unit_details",
+    description:
+      "Get full DOMUS unit details including banking info, allocation keys, and scheduled charges.",
+    parameters: {
+      property_number: {
+        type: "string",
+        required: true,
+        description: "Property number (Objektnummer)",
+      },
+      unit_number: {
+        type: "string",
+        required: true,
+        description: "Unit number (Einheitennummer)",
+      },
+    },
+    execute: async (params) => {
+      const unit = await prisma.domusUnit.findFirst({
+        where: {
+          propertyNumber: params.property_number,
+          unitNumber: params.unit_number,
+        },
+        include: {
+          bankingInfo: true,
+          allocationKeys: { orderBy: { keyIndex: "asc" } },
+          scheduledCharges: { orderBy: { chargeIndex: "asc" } },
+        },
+      });
+      if (!unit) throw new Error("Unit not found");
+      return { success: true, unit };
+    },
+  },
+];
+
+export const toolsByName = new Map(tools.map((t) => [t.name, t]));
