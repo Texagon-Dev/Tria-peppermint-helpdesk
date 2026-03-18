@@ -652,3 +652,189 @@ model InvoiceItem {
   invoiceId              String
   invoice                Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
+
+// ==========================================
+// DOMUS1000 Data Import
+// ==========================================
+
+model DomusUnit {
+  id                   String    @id @default(uuid())
+  createdAt            DateTime  @default(now())
+
+  // Identifiers
+  propertyNumber       String
+  unitNumber           String
+  propertyDescription  String?
+  searchTerm           String?
+  addressNumber        String?
+  tenantOwnerNumber    String?
+  d130Number           String?
+
+  // Address
+  address              String?
+  street               String?
+  poBox                String?
+  postalCode           String?
+  city                 String?
+  country              String?
+
+  // Names
+  salutation1          String?
+  name1                String?
+  salutation2          String?
+  name2                String?
+  name3                String?
+  name4                String?
+
+  // Contact
+  phonePrivate         String?
+  phonePrivate2        String?
+  phoneBusiness        String?
+  phoneBusiness2       String?
+  fax                  String?
+  mobile               String?
+  mobile2              String?
+  email                String?
+  email2               String?
+  homepage             String?
+
+  // Unit Details
+  sector               String?
+  unitDescription      String?
+  equipment            String?
+  taxNumber            String?
+  taxExemptionDate     DateTime?
+  totalGrossRent       Float?
+
+  // Lease
+  moveInDate           DateTime?
+  moveOutDate          DateTime?
+
+  // Additional
+  additional1          String?
+  additional2          String?
+  additional3          String?
+
+  // Direct Debit
+  directDebitActive    Boolean?
+  directDebitFrom      DateTime?
+  directDebitUntil     DateTime?
+  directDebitDay       Int?
+
+  // SEPA
+  mandateReference     String?
+  mandateValidFrom     DateTime?
+  mandateValidUntil    DateTime?
+  formDate             DateTime?
+
+  // Foreign Address
+  foreignAddressActive Boolean?
+  addressLine1         String?
+  addressLine2         String?
+  addressLine3         String?
+  addressLine4         String?
+
+  // Relations
+  bankingInfo          DomusBankingInfo?
+  allocationKeys       DomusAllocationKey[]
+  scheduledCharges     DomusScheduledCharge[]
+
+  @@index([propertyNumber, unitNumber])
+}
+
+model DomusBankingInfo {
+  id                       String    @id @default(uuid())
+  unitId                   String    @unique
+  unit                     DomusUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  // Tenant/Owner Bank
+  bankName                 String?
+  bankCode                 String?
+  accountNumber            String?
+  bic                      String?
+  iban                     String?
+  accountHolder            String?
+
+  // Property Bank
+  propertyBank             String?
+  propertyBankCode         String?
+  propertyBankAccount      String?
+  propertyBankHolder       String?
+  propertyBankBic          String?
+  propertyBankIban         String?
+  propertyBankCreditorName String?
+  propertyBankCreditorId   String?
+
+  // Tenant LEV Bank
+  tenantLevBank            String?
+  tenantLevBankCode        String?
+  tenantLevBankAccount     String?
+  tenantLevBankHolder      String?
+  tenantLevBankBic         String?
+  tenantLevBankIban        String?
+  tenantLevCreditorName    String?
+  tenantLevCreditorId      String?
+}
+
+model DomusAllocationKey {
+  id              String    @id @default(uuid())
+  unitId          String
+  unit            DomusUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  keyIndex        Int
+  keyDescription  String?
+  totalValue      Float?
+  keyType         String?
+  explanation     String?
+  keyValue        Float?
+  meterReadingNew Float?
+  meterReadingOld Float?
+  readingDate     DateTime?
+  variableValue   Float?
+
+  @@index([unitId])
+}
+
+model DomusScheduledCharge {
+  id            String    @id @default(uuid())
+  unitId        String
+  unit          DomusUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  chargeIndex   Int
+  d015Number    String?
+  chargeText    String?
+  paymentMethod String?
+  month         String?
+  d210Number    String?
+  chargeType    String?
+  amount        Float?
+
+  @@index([unitId])
+}
+
+model DomusJob {
+  id              String    @id @default(uuid())
+  createdAt       DateTime  @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  status          String    @default("QUEUED")
+  filename        String
+  fileSizeBytes   Int
+
+  totalRows       Int       @default(0)
+  processedRows   Int       @default(0)
+  skippedRows     Int       @default(0)
+
+  errorMessage    String?
+  skippedDetails  Json?
+
+  uploadedById    String?
+
+  @@index([status])
+}
+
+model DomusConfig {
+  id                    String    @id @default(uuid())
+  lastUploadedFilename  String?
+  lastFileUploadedAt    DateTime?
+  updatedAt             DateTime  @updatedAt
+}
