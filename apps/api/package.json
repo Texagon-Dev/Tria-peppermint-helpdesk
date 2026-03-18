@@ -14,7 +14,8 @@
     "db:push": "prisma db push --accept-data-loss",
     "db:migrate": "prisma migrate dev",
     "build": "tsc",
-    "dev": "ts-node-dev --respawn src/main.ts"
+    "dev": "ts-node-dev --respawn src/main.ts",
+    "mcp-server": "ts-node src/mcp/domus-mcp-server.ts"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.0",
