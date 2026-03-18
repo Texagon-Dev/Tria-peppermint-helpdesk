@@ -123,11 +123,11 @@ export async function processDomusJob(
               : undefined,
             allocationKeys:
               unitData.allocationKeys.length > 0
-                ? { createMany: { data: unitData.allocationKeys } }
+                ? { createMany: { data: unitData.allocationKeys as Prisma.DomusAllocationKeyCreateManyUnitInput[] } }
                 : undefined,
             scheduledCharges:
               unitData.scheduledCharges.length > 0
-                ? { createMany: { data: unitData.scheduledCharges } }
+                ? { createMany: { data: unitData.scheduledCharges as Prisma.DomusScheduledChargeCreateManyUnitInput[] } }
                 : undefined,
           },
         });
