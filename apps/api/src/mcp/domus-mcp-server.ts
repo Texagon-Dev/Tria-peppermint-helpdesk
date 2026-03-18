@@ -88,6 +88,9 @@ const tools: ToolDefinition[] = [
       },
     },
     execute: async (params) => {
+      if (!params.property_number && !params.unit_number) {
+        throw new Error("At least one of property_number or unit_number is required.");
+      }
       const queryParts: string[] = [];
       if (params.property_number)
         queryParts.push(
@@ -230,6 +233,14 @@ fastify.post(
         platform: "domus",
       };
     } catch (err: any) {
+      if (axios.isAxiosError(err)) {
+        return reply.status(err.response?.status || 500).send({
+          success: false,
+          error: err.response?.data?.error || err.message,
+          tool_name,
+          platform: "domus",
+        });
+      }
       return reply.status(500).send({
         success: false,
         error: err.message,

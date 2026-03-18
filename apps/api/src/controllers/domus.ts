@@ -1,6 +1,7 @@
 import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
+import { pipeline } from "stream/promises";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireAdmin } from "../lib/session";
 import { validateApiKey } from "../lib/api-key";
@@ -62,12 +63,7 @@ export function domusRoutes(fastify: FastifyInstance) {
 
       // Write file stream to disk
       const writeStream = fs.createWriteStream(tempFilePath);
-      await new Promise<void>((resolve, reject) => {
-        data.file.pipe(writeStream);
-        data.file.on("error", reject);
-        writeStream.on("finish", resolve);
-        writeStream.on("error", reject);
-      });
+      await pipeline(data.file, writeStream);
 
       const fileStat = fs.statSync(tempFilePath);
 
@@ -146,7 +142,7 @@ export function domusRoutes(fastify: FastifyInstance) {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": process.env.FRONTEND_URL || "http://localhost:3000",
       });
 
       let lastStatus = "";
@@ -206,6 +202,7 @@ export function domusRoutes(fastify: FastifyInstance) {
             }
           }
         } catch (err) {
+          console.error(`SSE stream for job ${jobId} failed:`, err);
           clearInterval(intervalId);
           reply.raw.end();
         }

@@ -111,39 +111,26 @@ export async function processDomusJob(
       const batch = allUnits.slice(i, i + BATCH_SIZE);
 
       for (const unitData of batch) {
-        const unit = await prisma.domusUnit.create({
-          data: unitData.core as Prisma.DomusUnitCreateInput,
-        });
-
-        // Banking info (1:1)
         const hasBankingData = Object.values(unitData.banking).some(
           (v) => v !== null && v !== ""
         );
-        if (hasBankingData) {
-          await prisma.domusBankingInfo.create({
-            data: { unitId: unit.id, ...unitData.banking },
-          });
-        }
 
-        // Allocation keys (1:N)
-        if (unitData.allocationKeys.length > 0) {
-          await prisma.domusAllocationKey.createMany({
-            data: unitData.allocationKeys.map((key) => ({
-              unitId: unit.id,
-              ...key,
-            })) as Prisma.DomusAllocationKeyCreateManyInput[],
-          });
-        }
-
-        // Scheduled charges (1:N)
-        if (unitData.scheduledCharges.length > 0) {
-          await prisma.domusScheduledCharge.createMany({
-            data: unitData.scheduledCharges.map((charge) => ({
-              unitId: unit.id,
-              ...charge,
-            })) as Prisma.DomusScheduledChargeCreateManyInput[],
-          });
-        }
+        await prisma.domusUnit.create({
+          data: {
+            ...(unitData.core as Prisma.DomusUnitCreateInput),
+            bankingInfo: hasBankingData
+              ? { create: unitData.banking }
+              : undefined,
+            allocationKeys:
+              unitData.allocationKeys.length > 0
+                ? { createMany: { data: unitData.allocationKeys } }
+                : undefined,
+            scheduledCharges:
+              unitData.scheduledCharges.length > 0
+                ? { createMany: { data: unitData.scheduledCharges } }
+                : undefined,
+          },
+        });
 
         processedRows++;
       }
@@ -156,24 +143,23 @@ export async function processDomusJob(
     // Get the original filename from the job record
     const job = await prisma.domusJob.findUnique({ where: { id: jobId } });
 
-    // Upsert DomusConfig with last upload info
-    const existingConfig = await prisma.domusConfig.findFirst();
-    if (existingConfig) {
-      await prisma.domusConfig.update({
-        where: { id: existingConfig.id },
-        data: {
-          lastUploadedFilename: job?.filename || "unknown",
-          lastFileUploadedAt: new Date(),
-        },
-      });
-    } else {
-      await prisma.domusConfig.create({
-        data: {
-          lastUploadedFilename: job?.filename || "unknown",
-          lastFileUploadedAt: new Date(),
-        },
-      });
-    }
+    // Upsert DomusConfig with last upload info (atomic)
+    const configData = {
+      lastUploadedFilename: job?.filename || "unknown",
+      lastFileUploadedAt: new Date(),
+    };
+
+    await prisma.$transaction(async (tx) => {
+      const existingConfig = await tx.domusConfig.findFirst();
+      if (existingConfig) {
+        await tx.domusConfig.update({
+          where: { id: existingConfig.id },
+          data: configData,
+        });
+      } else {
+        await tx.domusConfig.create({ data: configData });
+      }
+    });
 
     await updateJobStatus(jobId, {
       status: "COMPLETED",
@@ -186,7 +172,9 @@ export async function processDomusJob(
       status: "FAILED",
       completedAt: new Date(),
       errorMessage: err.message || "Unknown error",
-    }).catch(() => {});
+    }).catch((updateErr) => {
+      console.error(`Failed to update job ${jobId} to FAILED status:`, updateErr);
+    });
   } finally {
     // Clean up temp file
     try {
