@@ -92,6 +92,14 @@ server.addHook("preHandler", async function (request: any, reply: any) {
     ) {
       return true;
     }
+    // Skip auth for DOMUS SSE stream (EventSource cannot send headers; token passed via query param)
+    if (
+      request.url.startsWith("/api/v1/domus/jobs/") &&
+      request.url.includes("/stream") &&
+      request.method === "GET"
+    ) {
+      return true;
+    }
     // Skip auth if API Key is present (handled by route middleware)
     if (request.headers["x-api-key"]) {
       return true;

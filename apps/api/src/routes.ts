@@ -17,6 +17,7 @@ import { vendorEmailRoutes } from "./controllers/vendor-email";
 import { utilityCompanyRoutes } from "./controllers/utility-companies";
 import { glAccountRoutes } from "./controllers/gl-accounts";
 import { invoiceRoutes } from "./controllers/invoices";
+import { domusRoutes } from "./controllers/domus";
 
 
 
@@ -39,4 +40,5 @@ export function registerRoutes(fastify: FastifyInstance) {
   utilityCompanyRoutes(fastify);
   glAccountRoutes(fastify);
   invoiceRoutes(fastify);
+  domusRoutes(fastify);
 }
