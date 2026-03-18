@@ -38,7 +38,7 @@ export async function processDomusJob(
         skip_empty_lines: true,
         trim: true,
         relax_quotes: true,
-        delimiter: ";",
+        delimiter: ",",
         bom: true,
       })
     );
