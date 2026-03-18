@@ -44,3 +44,7 @@ dist
 infra
 
 .cursorrules
+
+# docs
+/docs/*
+!/docs/APIs/
