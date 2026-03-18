@@ -234,4 +234,5 @@ export interface IExportInvoicesQuery {
     startDate?: string;
     endDate?: string;
     preset?: string;  // "1d", "7d", "30d", "1y"
+    format?: "domus" | "standard";  // defaults to "domus"
 }

@@ -721,60 +721,113 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                 // Helper to extract unique Suggested GL accounts
                 const getSuggestedGLAccounts = (items: any[]) => getUniqueAccountCodes(items, (item) => item.glAccountSuggested);
 
-                // Build CSV content
-                const csvHeader = [
-                    "invoiceNumber",
-                    "invoiceDate",
-                    "dueDate",
-                    "vendorName",
-                    "utilityCompanyName",
-                    "grossTotal",
-                    "netTotal",
-                    "vatAmount",
-                    "vatRate",
-                    "taxType",
-                    "laborTotal",
-                    "materialTotal",
-                    "propertyAddress",
-                    "propertyOwner",
-                    "tenantName",
-                    "unitReference",
-                    "status",
-                    "sourceType",
-                    "caseNumber",
-                    "itemCount",
-                    "glAccounts",
-                    "glAccountSuggested",
-                    "GL Match Confidence"
-                ].join(",") + "\n";
+                // --- Domus format helpers ---
+                const formatGermanDate = (date: Date | null | undefined): string => {
+                    if (!date) return "";
+                    const d = new Date(date);
+                    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+                };
 
-                const csvRows = invoices.map(inv =>
-                    [
-                        escapeCSV(inv.invoiceNumber),
-                        escapeCSV(formatDate(inv.invoiceDate)),
-                        escapeCSV(formatDate(inv.dueDate)),
-                        escapeCSV(inv.vendor?.name),
-                        escapeCSV(inv.utilityCompany?.name),
-                        escapeCSV(inv.grossTotal),
-                        escapeCSV(inv.netTotal),
-                        escapeCSV(inv.vatAmount),
-                        escapeCSV(inv.vatRate),
-                        escapeCSV(inv.taxType),
-                        escapeCSV(inv.laborTotal),
-                        escapeCSV(inv.materialTotal),
-                        escapeCSV(inv.propertyAddress),
-                        escapeCSV(inv.propertyOwner),
-                        escapeCSV(inv.tenantName),
-                        escapeCSV(inv.unitReference),
-                        escapeCSV(inv.status),
-                        escapeCSV(inv.sourceType),
-                        escapeCSV(inv.caseNumber),
-                        escapeCSV(inv.items.length),
-                        escapeCSV(getGLAccounts(inv.items)),
-                        escapeCSV(getSuggestedGLAccounts(inv.items)),
-                        escapeCSV(inv.aiConfidence)
-                    ].join(",")
-                ).join("\n");
+                const formatGermanDecimal = (num: number | null | undefined): string => {
+                    if (num === null || num === undefined) return "";
+                    return String(num).replace('.', ',');
+                };
+
+                const escapeCSVSemicolon = (field: string | number | null | undefined): string => {
+                    if (field === null || field === undefined) return "";
+                    let s = String(field);
+                    if (['=', '+', '-', '@'].includes(s.charAt(0))) s = "'" + s;
+                    if (s.includes(";") || s.includes('"') || s.includes("\n")) {
+                        return `"${s.replace(/"/g, '""')}"`;
+                    }
+                    return s;
+                };
+
+                const formatBKPeriode = (inv: any): string => {
+                    if (!inv.billingPeriodStart && !inv.billingPeriodEnd) return "";
+                    const start = formatGermanDate(inv.billingPeriodStart);
+                    const end = formatGermanDate(inv.billingPeriodEnd);
+                    if (start && end) return `${start} - ${end}`;
+                    return start || end;
+                };
+
+                // Compute per-item VAT from invoice-level rate
+                const computeItemNetto = (item: any, inv: any): number => {
+                    const vatRate = inv.vatRate || 0;
+                    return vatRate > 0 ? item.total / (1 + vatRate / 100) : item.total;
+                };
+
+                const computeItemVat = (item: any, inv: any): number => {
+                    return item.total - computeItemNetto(item, inv);
+                };
+
+                // One row per invoice item — each accessor gets (inv, item)
+                const DOMUS_COLUMNS = [
+                    { header: "Suchbegriff",      accessor: (inv: any, _item: any) => inv.tenantName || inv.propertyOwner || "" },
+                    { header: "Belegnummer",      accessor: (inv: any, _item: any) => inv.invoiceNumber },
+                    { header: "Datum",            accessor: (inv: any, _item: any) => formatGermanDate(inv.invoiceDate) },
+                    { header: "BK-Periode",       accessor: (inv: any, _item: any) => formatBKPeriode(inv) },
+                    { header: "Objekt",           accessor: (inv: any, _item: any) => inv.propertyAddress || "" },
+                    { header: "Konto-Nr",         accessor: (_inv: any, item: any) => item.glAccount?.code || item.glAccountSuggested || "" },
+                    { header: "Konto-Name",       accessor: (_inv: any, item: any) => item.glAccount?.name || "" },
+                    { header: "Buchungstext",     accessor: (_inv: any, item: any) => item.description || "" },
+                    { header: "Lieferant",        accessor: (inv: any, _item: any) => inv.vendor?.name || inv.utilityCompany?.name || "" },
+                    { header: "Betrag",           accessor: (_inv: any, item: any) => formatGermanDecimal(item.total) },
+                    { header: "USt-Satz",         accessor: (inv: any, _item: any) => formatGermanDecimal(inv.vatRate) },
+                    { header: "USt-Betrag",       accessor: (inv: any, item: any) => formatGermanDecimal(Math.round(computeItemVat(item, inv) * 100) / 100) },
+                    { header: "Netto",            accessor: (inv: any, item: any) => formatGermanDecimal(Math.round(computeItemNetto(item, inv) * 100) / 100) },
+                    { header: "Arbeitsleistung",  accessor: (_inv: any, item: any) => formatGermanDecimal(item.costType === "labor" || item.costType === "mixed" ? item.total : 0) },
+                    { header: "Materialkosten",   accessor: (_inv: any, item: any) => formatGermanDecimal(item.costType === "material" || item.costType === "mixed" ? item.total : 0) },
+                    { header: "Einheit",          accessor: (inv: any, _item: any) => inv.unitReference || "" },
+                    { header: "Fälligkeitsdatum", accessor: (inv: any, _item: any) => formatGermanDate(inv.dueDate) },
+                    { header: "Status",           accessor: (inv: any, _item: any) => inv.status },
+                    { header: "Fallnummer",       accessor: (inv: any, _item: any) => inv.caseNumber || "" },
+                    { header: "AI Konfidenz",     accessor: (inv: any, _item: any) => formatGermanDecimal(inv.aiConfidence) },
+                ];
+
+                // Build CSV content based on format
+                const format = (request.body as any).format || "domus";
+                let csvContent: string;
+                let filename: string;
+
+                if (format === "domus") {
+                    const BOM = "\uFEFF";
+                    const delimiter = ";";
+                    const header = DOMUS_COLUMNS.map(c => c.header).join(delimiter) + "\n";
+                    const rows = invoices.flatMap(inv =>
+                        inv.items.map((item: any) =>
+                            DOMUS_COLUMNS.map(c => escapeCSVSemicolon(c.accessor(inv, item))).join(delimiter)
+                        )
+                    ).join("\n");
+                    csvContent = BOM + header + rows;
+                    filename = `rechnungen_export_${new Date().toISOString().split('T')[0]}.csv`;
+                } else {
+                    // Standard English CSV (original format)
+                    const csvHeader = [
+                        "invoiceNumber", "invoiceDate", "dueDate", "vendorName", "utilityCompanyName",
+                        "grossTotal", "netTotal", "vatAmount", "vatRate", "taxType", "laborTotal", "materialTotal",
+                        "propertyAddress", "propertyOwner", "tenantName", "unitReference", "status", "sourceType",
+                        "caseNumber", "itemCount", "glAccounts", "glAccountSuggested", "GL Match Confidence"
+                    ].join(",") + "\n";
+
+                    const csvRows = invoices.map(inv =>
+                        [
+                            escapeCSV(inv.invoiceNumber), escapeCSV(formatDate(inv.invoiceDate)),
+                            escapeCSV(formatDate(inv.dueDate)), escapeCSV(inv.vendor?.name),
+                            escapeCSV(inv.utilityCompany?.name), escapeCSV(inv.grossTotal),
+                            escapeCSV(inv.netTotal), escapeCSV(inv.vatAmount), escapeCSV(inv.vatRate),
+                            escapeCSV(inv.taxType), escapeCSV(inv.laborTotal), escapeCSV(inv.materialTotal),
+                            escapeCSV(inv.propertyAddress), escapeCSV(inv.propertyOwner),
+                            escapeCSV(inv.tenantName), escapeCSV(inv.unitReference), escapeCSV(inv.status),
+                            escapeCSV(inv.sourceType), escapeCSV(inv.caseNumber), escapeCSV(inv.items.length),
+                            escapeCSV(getGLAccounts(inv.items)), escapeCSV(getSuggestedGLAccounts(inv.items)),
+                            escapeCSV(inv.aiConfidence)
+                        ].join(",")
+                    ).join("\n");
+
+                    csvContent = csvHeader + csvRows;
+                    filename = `invoices_export_${new Date().toISOString().split('T')[0]}.csv`;
+                }
 
                 // Update exported invoices status (only approved ones)
                 const invoiceIds = invoices.map(inv => inv.id);
@@ -785,12 +838,10 @@ export function invoiceRoutes(fastify: FastifyInstance) {
                     });
                 }
 
-                const filename = `invoices_export_${new Date().toISOString().split('T')[0]}.csv`;
-
                 reply
                     .header("Content-Type", "text/csv; charset=utf-8")
                     .header("Content-Disposition", `attachment; filename=${filename}`)
-                    .send(csvHeader + csvRows);
+                    .send(csvContent);
             } catch (error: any) {
                 if (error.isValidationError) {
                     return reply.status(400).send({ success: false, error: error.message });
