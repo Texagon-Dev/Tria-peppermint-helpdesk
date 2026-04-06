@@ -481,6 +481,7 @@ enum TicketType {
 
 enum MaintenanceStatus {
   pending
+  awaiting_tenant_info
   emergency_dispatched
   quote_sent_to_vendor
   vendor_quote_received

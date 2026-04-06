@@ -1236,7 +1236,9 @@ export function ticketRoutes(fastify: FastifyInstance) {
       // Update the ticket
       // Auto-set ticket status based on maintenance status transitions
       let ticketStatusUpdate = {};
-      if (newStatus === "emergency_dispatched") {
+      if (newStatus === "awaiting_tenant_info") {
+        ticketStatusUpdate = { isComplete: false, status: "in_progress" as const };
+      } else if (newStatus === "emergency_dispatched") {
         ticketStatusUpdate = { isComplete: false, status: "in_progress" as const, priority: "critical" };
       } else if (newStatus === "vendor_contacting_tenant") {
         ticketStatusUpdate = { isComplete: false, status: "in_progress" as const };
