@@ -19,6 +19,44 @@ export interface ToolDefinition {
 }
 
 // =============================================================================
+// HELPERS
+// =============================================================================
+
+/**
+ * Compose a single human-readable address string from a DomusUnit's address
+ * fields. Used so vendor dispatch emails can show a real street address rather
+ * than internal property/unit IDs. See REQ-10.
+ */
+function composeUnitAddress(unit: {
+  street?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  propertyDescription?: string | null;
+  unitDescription?: string | null;
+}): string {
+  const street = unit.street?.trim() ?? "";
+  const postal = unit.postalCode?.trim() ?? "";
+  const city = unit.city?.trim() ?? "";
+  let base = "";
+  if (street || postal || city) {
+    base = `${street}, ${postal} ${city}`
+      .replace(/\s+/g, " ")
+      .replace(/^,\s*|,\s*$/g, "")
+      .trim();
+  } else if (unit.propertyDescription?.trim()) {
+    base = unit.propertyDescription.trim();
+  }
+  const unitDesc = unit.unitDescription?.trim();
+  return unitDesc ? (base ? `${base} (${unitDesc})` : `(${unitDesc})`) : base;
+}
+
+function attachAddress<T extends Parameters<typeof composeUnitAddress>[0]>(
+  unit: T
+): T & { address: string } {
+  return { ...unit, address: composeUnitAddress(unit) };
+}
+
+// =============================================================================
 // TOOL DEFINITIONS — call Prisma directly (same queries as domus.ts search routes)
 // =============================================================================
 
@@ -26,7 +64,7 @@ export const tools: ToolDefinition[] = [
   {
     name: "domus_search_by_email",
     description:
-      "Search DOMUS tenant/owner data by email address. Returns matching units with banking info.",
+      "Search DOMUS tenant/owner data by email address. Returns matching units with banking info. Each returned unit includes a composed 'address' string (street, postal code, city, unit description) suitable for vendor dispatch.",
     parameters: {
       email: {
         type: "string",
@@ -39,13 +77,13 @@ export const tools: ToolDefinition[] = [
         where: { OR: [{ email: params.email }, { email2: params.email }] },
         include: { bankingInfo: true },
       });
-      return { success: true, units };
+      return { success: true, units: units.map(attachAddress) };
     },
   },
   {
     name: "domus_search_by_name",
     description:
-      "Search DOMUS tenant/owner data by name. Searches across name1, name2, and searchTerm fields (case-insensitive).",
+      "Search DOMUS tenant/owner data by name. Searches across name1, name2, and searchTerm fields (case-insensitive). Each returned unit includes a composed 'address' string suitable for vendor dispatch.",
     parameters: {
       name: {
         type: "string",
@@ -64,13 +102,13 @@ export const tools: ToolDefinition[] = [
         },
         include: { bankingInfo: true },
       });
-      return { success: true, units };
+      return { success: true, units: units.map(attachAddress) };
     },
   },
   {
     name: "domus_search_by_property_unit",
     description:
-      "Search DOMUS data by property number and/or unit number. At least one must be provided.",
+      "Search DOMUS data by property number and/or unit number. At least one must be provided. Each returned unit includes a composed 'address' string suitable for vendor dispatch.",
     parameters: {
       property_number: {
         type: "string",
@@ -97,13 +135,13 @@ export const tools: ToolDefinition[] = [
         where,
         include: { bankingInfo: true },
       });
-      return { success: true, units };
+      return { success: true, units: units.map(attachAddress) };
     },
   },
   {
     name: "domus_search_by_tenant_number",
     description:
-      "Search DOMUS data by tenant/owner number (MieterEigentümernummer).",
+      "Search DOMUS data by tenant/owner number (MieterEigentümernummer). Each returned unit includes a composed 'address' string suitable for vendor dispatch.",
     parameters: {
       tenant_number: {
         type: "string",
@@ -116,13 +154,13 @@ export const tools: ToolDefinition[] = [
         where: { tenantOwnerNumber: params.tenant_number },
         include: { bankingInfo: true },
       });
-      return { success: true, units };
+      return { success: true, units: units.map(attachAddress) };
     },
   },
   {
     name: "domus_get_unit_details",
     description:
-      "Get full DOMUS unit details including banking info, allocation keys, and scheduled charges.",
+      "Get full DOMUS unit details including banking info, allocation keys, and scheduled charges. The returned unit includes a composed 'address' string suitable for vendor dispatch.",
     parameters: {
       property_number: {
         type: "string",
@@ -148,7 +186,7 @@ export const tools: ToolDefinition[] = [
         },
       });
       if (!unit) throw new Error("Unit not found");
-      return { success: true, unit };
+      return { success: true, unit: attachAddress(unit) };
     },
   },
 ];
