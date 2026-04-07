@@ -90,8 +90,8 @@ export const tools: ToolDefinition[] = [
         );
       }
       const where: Prisma.DomusUnitWhereInput = {};
-      if (params.property_number) where.propertyNumber = params.property_number;
-      if (params.unit_number) where.unitNumber = params.unit_number;
+      if (params.property_number) where.propertyNumber = String(params.property_number);
+      if (params.unit_number) where.unitNumber = String(params.unit_number);
 
       const units = await prisma.domusUnit.findMany({
         where,
@@ -138,8 +138,8 @@ export const tools: ToolDefinition[] = [
     execute: async (params) => {
       const unit = await prisma.domusUnit.findFirst({
         where: {
-          propertyNumber: params.property_number,
-          unitNumber: params.unit_number,
+          propertyNumber: String(params.property_number),
+          unitNumber: String(params.unit_number),
         },
         include: {
           bankingInfo: true,
