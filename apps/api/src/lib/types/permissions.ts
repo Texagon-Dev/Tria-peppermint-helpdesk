@@ -95,7 +95,7 @@ export type Permission =
 
 // Useful type for grouping permissions by category
 export const PermissionCategories = {
-  ISSUE: 'Issue Management',
+  ISSUE: 'Ticket Management',
   USER: 'User Management',
   ROLE: 'Role Management',
   TEAM: 'Team Management',

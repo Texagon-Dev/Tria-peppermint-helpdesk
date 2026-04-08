@@ -401,11 +401,19 @@ export function ticketRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { query }: any = request.body;
 
+      // Allow searching by ticket Number when the query is numeric (with or
+      // without a leading "#"), in addition to the title contains-match.
+      const numericQuery = typeof query === "string" ? query.replace(/^#/, "").trim() : "";
+      const parsedNumber = numericQuery !== "" && /^\d+$/.test(numericQuery)
+        ? parseInt(numericQuery, 10)
+        : null;
+
       const tickets = await prisma.ticket.findMany({
         where: {
-          title: {
-            contains: query,
-          },
+          OR: [
+            { title: { contains: query } },
+            ...(parsedNumber !== null ? [{ Number: parsedNumber }] : []),
+          ],
         },
       });
 
@@ -1162,7 +1170,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         if (following.includes(user!.id)) {
           reply.send({
             success: false,
-            message: "You are already following this issue",
+            message: "You are already following this ticket",
           });
         }
 
@@ -1207,7 +1215,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
         if (!following.includes(user!.id)) {
           return reply.send({
             success: false,
-            message: "You are not following this issue",
+            message: "You are not following this ticket",
           });
         }
 

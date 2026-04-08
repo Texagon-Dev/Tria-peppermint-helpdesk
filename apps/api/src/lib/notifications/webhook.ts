@@ -22,11 +22,11 @@ export async function sendWebhookNotification(webhook: any, message: any) {
     const discordMessage = {
       embeds: [
         {
-          title: "Issue Created",
-          description: "A new issue has been created",
+          title: "Ticket Created",
+          description: "A new ticket has been created",
           color: getPriorityColor(message.priority), // Use the priority color function
           footer: {
-            text: "Issue ID: " + message.id,
+            text: "Ticket ID: " + message.id,
           },
           author: {
             name: "peppermint.sh",
