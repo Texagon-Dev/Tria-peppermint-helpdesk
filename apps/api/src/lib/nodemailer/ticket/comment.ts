@@ -50,10 +50,11 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
     var htmlToSend = template(replacements);
 
     // Build subject with [REQ-xxx] reference for Layer 2.5 thread matching
-    const refTag = `[REQ-${ticketId.slice(0, TICKET_REFERENCE_LENGTH)}] `;
+    const refTag = `[Case #${ticket?.Number} · REQ-${ticketId.slice(0, TICKET_REFERENCE_LENGTH)}] `;
+    const cleanSubject = originalSubject?.replace(/^(Re:\s*)+/i, '');
     const subject = originalSubject
-      ? `${refTag}Re: ${originalSubject.replace(/^(Re:\s*)+/i, '')}` // Remove existing Re: prefixes
-      : `${refTag}New comment on Issue #${title} ref: #${ticketId}`;
+      ? `${refTag}${inReplyTo ? 'Re: ' : ''}${cleanSubject}` // Only add Re: when actually replying
+      : `${refTag}New update on Case #${ticket?.Number} — ${title}`;
 
     // Build headers for email threading
     const headers: Record<string, string> = {
@@ -79,7 +80,7 @@ export async function sendComment(options: CommentEmailOptions): Promise<string 
       from: fromAddress,
       to: email,
       subject: subject,
-      text: `Hello there, Issue #${title}, has had an update with a comment of ${comment}`,
+      text: `Hello there, Case #${ticket?.Number} has had an update with a comment of ${comment}`,
       html: htmlToSend,
       headers: headers,
     });
