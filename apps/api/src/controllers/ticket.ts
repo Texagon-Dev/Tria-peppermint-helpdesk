@@ -378,8 +378,15 @@ export function ticketRoutes(fastify: FastifyInstance) {
         },
       });
 
+      const ticketsWithStatus = tickets.map((t) => ({
+        ...t,
+        maintenanceStatusInfo: t.maintenanceStatus
+          ? getMaintenanceStatusInfo(t.maintenanceStatus as MaintenanceStatusValue)
+          : null,
+      }));
+
       reply.send({
-        tickets: tickets,
+        tickets: ticketsWithStatus,
         sucess: true,
       });
     }
@@ -436,8 +443,15 @@ export function ticketRoutes(fastify: FastifyInstance) {
         },
       });
 
+      const ticketsWithStatus = tickets.map((t) => ({
+        ...t,
+        maintenanceStatusInfo: t.maintenanceStatus
+          ? getMaintenanceStatusInfo(t.maintenanceStatus as MaintenanceStatusValue)
+          : null,
+      }));
+
       reply.send({
-        tickets: tickets,
+        tickets: ticketsWithStatus,
         sucess: true,
       });
     }
@@ -512,10 +526,54 @@ export function ticketRoutes(fastify: FastifyInstance) {
         },
       });
 
+      const ticketsWithStatus = tickets.map((t) => ({
+        ...t,
+        maintenanceStatusInfo: t.maintenanceStatus
+          ? getMaintenanceStatusInfo(t.maintenanceStatus as MaintenanceStatusValue)
+          : null,
+      }));
+
       reply.send({
         success: true,
-        tickets: tickets,
+        tickets: ticketsWithStatus,
       });
+    }
+  );
+
+  // Get maintenance status counts for dashboard
+  fastify.get(
+    "/api/v1/tickets/maintenance-counts",
+    {
+      preHandler: requirePermission(["issue::read"]),
+    },
+    async (_request: FastifyRequest, reply: FastifyReply) => {
+      const grouped = await prisma.ticket.groupBy({
+        by: ["maintenanceStatus"],
+        where: {
+          isComplete: false,
+          hidden: false,
+          maintenanceStatus: { not: null },
+        },
+        _count: { _all: true },
+        _min: { createdAt: true },
+      });
+
+      const counts = grouped
+        .filter((g) => g.maintenanceStatus !== null)
+        .map((g) => {
+          const status = g.maintenanceStatus as MaintenanceStatusValue;
+          const info = getMaintenanceStatusInfo(status);
+          return {
+            status,
+            label: info.label,
+            order: info.order,
+            count: g._count._all,
+            oldestCreatedAt: g._min.createdAt,
+          };
+        })
+        .sort((a, b) => a.order - b.order);
+
+      reply.send({ counts, success: true });
     }
   );
 
