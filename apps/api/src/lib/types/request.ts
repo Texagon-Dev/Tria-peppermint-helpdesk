@@ -110,6 +110,7 @@ export interface IMaintenanceStatusParams {
 export interface IUpdateMaintenanceStatusBody {
     status: string;
     vendorEmail?: string;  // Email of selected vendor (stored in ticket.metadata)
+    category?: string;     // Category searched when no vendor was found
 }
 
 // Ticket update request types
