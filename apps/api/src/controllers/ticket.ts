@@ -1267,7 +1267,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { status, vendorEmail } = request.body;
+      const { status, vendorEmail, category } = request.body;
 
       // Validate status is a valid MaintenanceStatus value
       if (!isMaintenanceStatusValue(status)) {
@@ -1280,7 +1280,7 @@ export function ticketRoutes(fastify: FastifyInstance) {
       // Get current ticket (include metadata to preserve existing values)
       const ticket = await prisma.ticket.findUnique({
         where: { id },
-        select: { id: true, maintenanceStatus: true, metadata: true },
+        select: { id: true, Number: true, maintenanceStatus: true, metadata: true },
       });
 
       if (!ticket) {
@@ -1293,11 +1293,13 @@ export function ticketRoutes(fastify: FastifyInstance) {
       const currentStatus = ticket.maintenanceStatus as MaintenanceStatusValue | null;
       const newStatus = status;
 
-      // Build metadata update (preserve existing, add/update selectedVendorEmail if provided)
+      // Build metadata update (preserve existing, add/update fields if provided)
       const existingMetadata = (ticket.metadata || {}) as Record<string, unknown>;
-      const updatedMetadata = vendorEmail
-        ? { ...existingMetadata, selectedVendorEmail: vendorEmail.trim() }
-        : existingMetadata;
+      const updatedMetadata = {
+        ...existingMetadata,
+        ...(category ? { searchedCategory: category } : {}),
+        ...(vendorEmail ? { selectedVendorEmail: vendorEmail.trim() } : {}),
+      };
 
       // Update the ticket
       // Auto-set ticket status based on maintenance status transitions
@@ -1308,6 +1310,8 @@ export function ticketRoutes(fastify: FastifyInstance) {
         ticketStatusUpdate = { isComplete: false, status: "in_progress" as const, priority: "critical" };
       } else if (newStatus === "vendor_contacting_tenant") {
         ticketStatusUpdate = { isComplete: false, status: "in_progress" as const };
+      } else if (newStatus === "no_vendor_available") {
+        ticketStatusUpdate = { isComplete: false, status: "needs_support" as const };
       } else if (newStatus === "work_completed" || newStatus === "cancelled") {
         ticketStatusUpdate = { isComplete: true, status: "done" as const };
       }
@@ -1321,6 +1325,31 @@ export function ticketRoutes(fastify: FastifyInstance) {
         },
       });
 
+      // Notify admins and add internal comment when no vendor is available
+      if (newStatus === 'no_vendor_available') {
+        const admins = await prisma.user.findMany({
+          where: { isAdmin: true },
+          select: { id: true },
+        });
+
+        await prisma.notifications.createMany({
+          data: admins.map(admin => ({
+            text: `Ticket #${ticket.Number} — No vendor available for category "${category || 'unknown'}". Admin action required.`,
+            userId: admin.id,
+            ticketId: id,
+          })),
+        });
+
+        await prisma.comment.create({
+          data: {
+            text: `Automated: No vendor found for category "${category || 'unknown'}". A vendor needs to be added to this category before the maintenance workflow can proceed.`,
+            public: false,
+            ticketId: id,
+            userId: request.user.id,
+          },
+        });
+      }
+
       const statusInfo = getMaintenanceStatusInfo(newStatus);
 
       reply.send({
@@ -1328,6 +1357,95 @@ export function ticketRoutes(fastify: FastifyInstance) {
         previousStatus: currentStatus,
         currentStatus: newStatus,
         statusInfo,
+      });
+    }
+  );
+
+  // Retry vendor selection — admin re-triggers the full Flowise flow after adding a vendor
+  fastify.post<{ Params: { id: string } }>(
+    "/api/v1/ticket/:id/retry-vendor-selection",
+    {
+      preHandler: requirePermission(["issue::update"]),
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const ticket = await prisma.ticket.findUnique({
+        where: { id },
+        select: { id: true, Number: true, maintenanceStatus: true, metadata: true },
+      });
+
+      if (!ticket) {
+        return reply.status(404).send({ success: false, error: "Ticket not found" });
+      }
+
+      if (ticket.maintenanceStatus !== "no_vendor_available") {
+        return reply.status(400).send({
+          success: false,
+          error: `Ticket is in "${ticket.maintenanceStatus}" status, not "no_vendor_available".`,
+        });
+      }
+
+      // Check if vendors now exist for the searched category
+      const metadata = (ticket.metadata || {}) as Record<string, unknown>;
+      const searchedCategory = metadata.searchedCategory as string | undefined;
+
+      if (searchedCategory) {
+        const vendors = await prisma.vendor.findMany({
+          where: { category: { name: searchedCategory }, active: true },
+          select: { id: true },
+          take: 1,
+        });
+
+        if (vendors.length === 0) {
+          return reply.status(400).send({
+            success: false,
+            error: `No vendors found for category "${searchedCategory}". Please add a vendor first.`,
+          });
+        }
+      }
+
+      // Reset ticket status to pending for re-processing
+      await prisma.ticket.update({
+        where: { id },
+        data: {
+          maintenanceStatus: "pending",
+          status: "in_progress",
+        },
+      });
+
+      // Add internal comment for audit trail
+      await prisma.comment.create({
+        data: {
+          text: `Admin retried vendor selection for category "${searchedCategory || 'unknown'}".`,
+          public: false,
+          ticketId: id,
+          userId: request.user.id,
+        },
+      });
+
+      // Fire webhooks to re-trigger the Flowise flow
+      const webhooks = await prisma.webhooks.findMany({
+        where: { type: "ticket_status_changed" },
+      });
+
+      for (let i = 0; i < webhooks.length; i++) {
+        if (webhooks[i].active === true) {
+          await sendWebhookNotification(webhooks[i], {
+            event: "ticket_status_changed",
+            ticketId: ticket.id,
+            ticketNumber: ticket.Number,
+            status: "pending",
+            previousStatus: "no_vendor_available",
+          });
+        }
+      }
+
+      reply.send({
+        success: true,
+        message: "Vendor selection retry triggered",
+        previousStatus: "no_vendor_available",
+        currentStatus: "pending",
       });
     }
   );
